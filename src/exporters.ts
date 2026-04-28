@@ -1,4 +1,4 @@
-import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
+import { Document, HeadingLevel, Packer, Paragraph, TextRun, UnderlineType } from "docx";
 import * as XLSX from "xlsx";
 import type { Chapter, Entry, OrderedEntryRef, Project, WorkspaceData } from "./types";
 import { downloadBlob, sanitizeFilename } from "./utils";
@@ -66,6 +66,74 @@ function exportLabel(workspace: WorkspaceData, scope: ExportScope): string {
   return `長編工作臺-全部專案-${date}`;
 }
 
+function entryHeadline(entry: Entry): string {
+  return entry.timeText || "未著錄時間";
+}
+
+interface MarkupSegment {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+}
+
+function parseLightMarkupSegments(text: string): MarkupSegment[] {
+  const source = text || "";
+  const pattern = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*)/g;
+  const segments: MarkupSegment[] = [];
+  let cursor = 0;
+
+  for (const match of source.matchAll(pattern)) {
+    const token = match[0] ?? "";
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      segments.push({ text: source.slice(cursor, index) });
+    }
+
+    if (token.startsWith("**") && token.endsWith("**")) {
+      segments.push({ text: token.slice(2, -2), bold: true });
+    } else if (token.startsWith("__") && token.endsWith("__")) {
+      segments.push({ text: token.slice(2, -2), underline: true });
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      segments.push({ text: token.slice(1, -1), italic: true });
+    } else {
+      segments.push({ text: token });
+    }
+    cursor = index + token.length;
+  }
+
+  if (cursor < source.length) {
+    segments.push({ text: source.slice(cursor) });
+  }
+
+  return segments;
+}
+
+function segmentToRuns(segment: MarkupSegment): TextRun[] {
+  const lines = segment.text.split(/\r?\n/);
+  const runs: TextRun[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    runs.push(
+      new TextRun({
+        text: lines[index] ?? "",
+        bold: segment.bold,
+        italics: segment.italic,
+        underline: segment.underline ? { type: UnderlineType.SINGLE } : undefined,
+        break: index > 0 ? 1 : undefined,
+      }),
+    );
+  }
+  return runs;
+}
+
+function sourceTextRuns(text: string): TextRun[] {
+  const segments = parseLightMarkupSegments(text);
+  if (segments.length === 0) {
+    return [new TextRun("")];
+  }
+  return segments.flatMap((segment) => segmentToRuns(segment));
+}
+
 export function exportAsTxt(workspace: WorkspaceData, scope: ExportScope): void {
   const projects = getExportProjects(workspace, scope);
   const lines: string[] = ["長編工作臺匯出", ""];
@@ -80,7 +148,9 @@ export function exportAsTxt(workspace: WorkspaceData, scope: ExportScope): void 
     if (directEntries.length > 0) {
       lines.push("## 未分章史料");
       directEntries.forEach((entry, index) => {
-        lines.push(`### ${index + 1}. ${entry.timeText || "未著錄時間"}`);
+        lines.push(`### ${index + 1}. ${entryHeadline(entry)}`);
+        lines.push("摘要：");
+        lines.push(entry.summary || "");
         lines.push("史料文本：");
         lines.push(entry.sourceText || "");
         lines.push("備註：");
@@ -102,7 +172,9 @@ export function exportAsTxt(workspace: WorkspaceData, scope: ExportScope): void 
         if (!entry) {
           return;
         }
-        lines.push(`### ${index + 1}. ${entry.timeText || "未著錄時間"}`);
+        lines.push(`### ${index + 1}. ${entryHeadline(entry)}`);
+        lines.push("摘要：");
+        lines.push(entry.summary || "");
         lines.push("史料文本：");
         lines.push(entry.sourceText || "");
         lines.push("備註：");
@@ -124,7 +196,7 @@ export function exportAsTxt(workspace: WorkspaceData, scope: ExportScope): void 
 function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entry): void {
   children.push(
     new Paragraph({
-      text: `${order}. ${entry.timeText || "未著錄時間"}`,
+      text: `${order}. ${entryHeadline(entry)}`,
       heading: HeadingLevel.HEADING_3,
     }),
   );
@@ -132,8 +204,17 @@ function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entr
   children.push(
     new Paragraph({
       children: [
+        new TextRun({ text: "摘要：", bold: true }),
+        new TextRun(entry.summary || ""),
+      ],
+    }),
+  );
+
+  children.push(
+    new Paragraph({
+      children: [
         new TextRun({ text: "史料文本：", bold: true }),
-        new TextRun(entry.sourceText || ""),
+        ...sourceTextRuns(entry.sourceText || ""),
       ],
     }),
   );
@@ -249,6 +330,7 @@ export function exportAsXlsx(workspace: WorkspaceData, scope: ExportScope): void
       "章節",
       "序號",
       "時間",
+      "摘要",
       "史料文本",
       "備註",
       "引文註釋",
@@ -265,6 +347,7 @@ export function exportAsXlsx(workspace: WorkspaceData, scope: ExportScope): void
         item.chapter?.title ?? "未分章",
         item.order,
         item.entry.timeText,
+        item.entry.summary,
         item.entry.sourceText,
         item.entry.note,
         item.entry.citation,
@@ -280,6 +363,7 @@ export function exportAsXlsx(workspace: WorkspaceData, scope: ExportScope): void
     { wch: 20 },
     { wch: 8 },
     { wch: 24 },
+    { wch: 36 },
     { wch: 70 },
     { wch: 40 },
     { wch: 40 },

@@ -19,6 +19,9 @@ npm run mcp:start
 - `add_entry`
 - `search_entries`
 
+`add_entry` 支持欄位：`time_text`、`summary`、`source_text`、`note`、`citation`。  
+`search_entries` 的關鍵詞會匹配時間、摘要、史料文本、備註、引文註釋。
+
 示例（MCP 客戶端配置片段）：
 
 ```json

@@ -24,7 +24,8 @@ body,
 #root {
   margin: 0;
   width: 100%;
-  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -47,7 +48,7 @@ select {
   grid-template-columns: 300px minmax(540px, 1fr) 380px;
   gap: 14px;
   width: 100%;
-  min-height: 100vh;
+  height: 100vh;
   padding: 16px;
 }
 
@@ -94,7 +95,7 @@ select {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: calc(100vh - 32px);
+  height: calc(100vh - 32px);
   border: 1px solid var(--stroke);
   border-radius: 18px;
   background: var(--panel);
@@ -119,9 +120,7 @@ select {
 .center-pane,
 .right-pane {
   padding: 14px;
-}
-
-.right-pane {
+  min-height: 0;
   overflow: auto;
 }
 
@@ -222,6 +221,15 @@ h3 {
   cursor: default;
 }
 
+.danger-btn {
+  border-color: rgba(141, 63, 54, 0.36);
+  color: var(--danger);
+}
+
+.danger-btn:hover {
+  background: #f7ece9;
+}
+
 .icon-btn {
   min-width: 34px;
   height: 30px;
@@ -246,7 +254,7 @@ h3 {
 }
 
 .sidebar-scroll {
-  overflow: auto;
+  min-height: 0;
   padding-right: 4px;
   display: flex;
   flex-direction: column;
@@ -386,7 +394,7 @@ h3 {
 }
 
 .entry-list {
-  overflow: auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -425,6 +433,12 @@ h3 {
   font-size: 20px;
 }
 
+.entry-heading {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .entry-actions {
   display: flex;
   gap: 6px;
@@ -434,6 +448,31 @@ h3 {
   margin: 0;
   line-height: 1.5;
   color: var(--ink-0);
+  white-space: normal;
+}
+
+.rich-markup {
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.58;
+}
+
+.clamp-4 {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.entry-note-preview {
+  margin: 0;
+  color: var(--ink-1);
+  font-size: 13px;
+  line-height: 1.4;
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "BiauKai", serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .entry-citation {
@@ -510,11 +549,49 @@ h3 {
 }
 
 .search-results {
-  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 7px;
   min-height: 0;
+}
+
+.left-pane,
+.center-pane,
+.right-pane {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.left-pane[data-scrolling="true"],
+.center-pane[data-scrolling="true"],
+.right-pane[data-scrolling="true"] {
+  scrollbar-color: rgba(46, 64, 69, 0.42) transparent;
+}
+
+.left-pane::-webkit-scrollbar,
+.center-pane::-webkit-scrollbar,
+.right-pane::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.left-pane::-webkit-scrollbar-track,
+.center-pane::-webkit-scrollbar-track,
+.right-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.left-pane::-webkit-scrollbar-thumb,
+.center-pane::-webkit-scrollbar-thumb,
+.right-pane::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: transparent;
+}
+
+.left-pane[data-scrolling="true"]::-webkit-scrollbar-thumb,
+.center-pane[data-scrolling="true"]::-webkit-scrollbar-thumb,
+.right-pane[data-scrolling="true"]::-webkit-scrollbar-thumb {
+  background: rgba(46, 64, 69, 0.38);
 }
 
 .result-meta {
@@ -685,6 +762,64 @@ h3 {
   color: #3e5960;
 }
 
+.entry-view-grid {
+  gap: 12px;
+}
+
+.entry-view-block {
+  border: 1px solid rgba(46, 64, 69, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.entry-view-title {
+  color: #4f666c;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.entry-view-text,
+.entry-view-source,
+.entry-view-note,
+.entry-view-citation {
+  color: #2f454b;
+  line-height: 1.62;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.entry-view-note {
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "BiauKai", serif;
+}
+
+.format-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.format-btn {
+  min-width: 32px;
+  width: 32px;
+  padding: 0;
+  font-weight: 700;
+}
+
+.format-btn:nth-of-type(2) {
+  font-style: italic;
+}
+
+.format-tip {
+  color: #5a6e74;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .path-preview {
   margin: 0;
   padding: 10px;
@@ -838,9 +973,14 @@ h3 {
 .app-shell[data-theme]:not([data-theme="changbian"]) .search-path,
 .app-shell[data-theme]:not([data-theme="changbian"]) .search-snippet,
 .app-shell[data-theme]:not([data-theme="changbian"]) .search-citation,
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-note-preview,
 .app-shell[data-theme]:not([data-theme="changbian"]) .entry-citation,
 .app-shell[data-theme]:not([data-theme="changbian"]) .modal-label,
+.app-shell[data-theme]:not([data-theme="changbian"]) .format-tip,
 .app-shell[data-theme]:not([data-theme="changbian"]) .advanced-source,
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-view-title,
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-view-note,
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-view-citation,
 .app-shell[data-theme]:not([data-theme="changbian"]) .merge-group-title,
 .app-shell[data-theme]:not([data-theme="changbian"]) .context-item {
   color: var(--ink-1);
@@ -854,6 +994,8 @@ h3 {
 .app-shell[data-theme]:not([data-theme="changbian"]) .project-title,
 .app-shell[data-theme]:not([data-theme="changbian"]) .search-time,
 .app-shell[data-theme]:not([data-theme="changbian"]) .entry-snippet,
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-view-text,
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-view-source,
 .app-shell[data-theme]:not([data-theme="changbian"]) .path-preview {
   color: var(--ink-0);
 }
@@ -1053,11 +1195,13 @@ h3 {
   .app-shell {
     grid-template-columns: 1fr;
     grid-auto-rows: minmax(280px, auto);
+    height: auto;
+    min-height: 100vh;
     padding: 12px;
   }
 
   .panel {
-    min-height: auto;
+    height: auto;
   }
 
   .export-actions {

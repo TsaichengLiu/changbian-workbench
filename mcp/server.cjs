@@ -116,6 +116,12 @@ function loadWorkspace() {
     if (!parsed || typeof parsed !== "object") {
       throw new Error("invalid workspace payload");
     }
+    const entries = parsed.entries && typeof parsed.entries === "object" ? parsed.entries : {};
+    for (const entry of Object.values(entries)) {
+      if (entry && typeof entry === "object" && typeof entry.summary !== "string") {
+        entry.summary = "";
+      }
+    }
     return parsed;
   } catch (error) {
     const fallback = createInitialWorkspace();
@@ -165,6 +171,7 @@ function appendEntry(workspace, payload) {
     projectId: payload.projectId,
     chapterId: payload.chapterId || null,
     timeText: payload.timeText || "",
+    summary: payload.summary || "",
     sourceText: payload.sourceText || "",
     note: payload.note || "",
     citation: payload.citation || "",
@@ -228,6 +235,7 @@ const TOOLS = [
         project_id: { type: "string", description: "目標專案 ID" },
         chapter_id: { type: "string", description: "目標章節 ID（可選）" },
         time_text: { type: "string", description: "時間文本" },
+        summary: { type: "string", description: "摘要（可選）" },
         source_text: { type: "string", description: "史料文本" },
         note: { type: "string", description: "備註（可含 #標籤）" },
         citation: { type: "string", description: "引文註釋" },
@@ -366,6 +374,7 @@ function handleToolCall(name, args) {
       projectId,
       chapterId: chapterId || null,
       timeText: String(args.time_text || ""),
+      summary: String(args.summary || ""),
       sourceText: String(args.source_text || ""),
       note: String(args.note || ""),
       citation: String(args.citation || ""),
@@ -421,7 +430,15 @@ function handleToolCall(name, args) {
 
         const queryPass = query
           ? includesIgnoreCase(
-              [project.title, item.chapterTitle, entry.timeText, entry.sourceText, entry.note, entry.citation].join("\n"),
+              [
+                project.title,
+                item.chapterTitle,
+                entry.timeText,
+                entry.summary || "",
+                entry.sourceText,
+                entry.note,
+                entry.citation,
+              ].join("\n"),
               query,
             )
           : true;
@@ -446,6 +463,7 @@ function handleToolCall(name, args) {
           chapter_id: item.chapterId,
           chapter_title: item.chapterTitle,
           time_text: entry.timeText,
+          summary: entry.summary || "",
           source_text: entry.sourceText,
           note: entry.note,
           citation: entry.citation,

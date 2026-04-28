@@ -3,6 +3,7 @@ export interface Entry {
   projectId: string;
   chapterId: string | null;
   timeText: string;
+  summary: string;
   sourceText: string;
   note: string;
   citation: string;

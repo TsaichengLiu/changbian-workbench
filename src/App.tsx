@@ -1,4 +1,13 @@
-import { type CSSProperties, type DragEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ExportScope, exportAsDocx, exportAsTxt, exportAsXlsx } from "./exporters";
 import { matchesTraditionalSimplified } from "./search";
 import type { Entry, WorkspaceData } from "./types";
@@ -186,6 +195,7 @@ interface SearchResult {
   projectTitle: string;
   chapterTitle: string;
   timeText: string;
+  summaryText: string;
   snippet: string;
   citation: string;
   tags: string[];
@@ -193,6 +203,7 @@ interface SearchResult {
 
 interface EntryDraft {
   timeText: string;
+  summary: string;
   sourceText: string;
   note: string;
   citation: string;
@@ -217,6 +228,14 @@ type ModalState =
   | { kind: "project-rename"; projectId: string; value: string }
   | { kind: "chapter-create"; projectId: string; value: string }
   | { kind: "chapter-rename"; chapterId: string; value: string }
+  | { kind: "entry-view"; entryId: string }
+  | {
+      kind: "entry-create";
+      projectId: string;
+      chapterId: string | null;
+      insertAfterEntryId: string | null;
+      draft: EntryDraft;
+    }
   | { kind: "entry-edit"; entryId: string; draft: EntryDraft }
   | null;
 
@@ -284,9 +303,20 @@ interface WorkspaceStorageInfo {
 function entryToDraft(entry: Entry): EntryDraft {
   return {
     timeText: entry.timeText,
+    summary: entry.summary ?? "",
     sourceText: entry.sourceText,
     note: entry.note,
     citation: entry.citation,
+  };
+}
+
+function createEmptyEntryDraft(): EntryDraft {
+  return {
+    timeText: "",
+    summary: "",
+    sourceText: "",
+    note: "",
+    citation: "",
   };
 }
 
@@ -365,11 +395,34 @@ function activeEntryIds(workspace: WorkspaceData): string[] {
   return project.entryIds;
 }
 
+function resolveInsertAfterEntryId(
+  workspace: WorkspaceData,
+  projectId: string,
+  chapterId: string | null,
+  selectedEntryId: string | null,
+): string | null {
+  if (!selectedEntryId) {
+    return null;
+  }
+  const selected = workspace.entries[selectedEntryId];
+  if (!selected) {
+    return null;
+  }
+  if (selected.projectId !== projectId) {
+    return null;
+  }
+  if ((selected.chapterId ?? null) !== (chapterId ?? null)) {
+    return null;
+  }
+  return selectedEntryId;
+}
+
 function appendEntryDraft(
   workspace: WorkspaceData,
   projectId: string,
   chapterId: string | null,
   draft: EntryDraft,
+  insertAfterEntryId: string | null = null,
 ): string {
   const entryId = createId("entry");
   workspace.entries[entryId] = {
@@ -377,6 +430,7 @@ function appendEntryDraft(
     projectId,
     chapterId,
     timeText: draft.timeText,
+    summary: draft.summary,
     sourceText: draft.sourceText,
     note: draft.note,
     citation: draft.citation,
@@ -384,11 +438,23 @@ function appendEntryDraft(
     updatedAt: Date.now(),
   };
 
-  if (chapterId) {
-    workspace.chapters[chapterId]?.entryIds.push(entryId);
-  } else {
-    workspace.projects[projectId]?.entryIds.push(entryId);
+  const targetEntryIds = chapterId
+    ? workspace.chapters[chapterId]?.entryIds
+    : workspace.projects[projectId]?.entryIds;
+
+  if (!targetEntryIds) {
+    return entryId;
   }
+
+  if (insertAfterEntryId) {
+    const index = targetEntryIds.indexOf(insertAfterEntryId);
+    if (index >= 0) {
+      targetEntryIds.splice(index + 1, 0, entryId);
+      return entryId;
+    }
+  }
+
+  targetEntryIds.push(entryId);
 
   return entryId;
 }
@@ -526,6 +592,9 @@ function cleanupWorkspace(workspace: WorkspaceData): WorkspaceData {
 
   for (const entryId of Object.keys(next.entries)) {
     const entry = next.entries[entryId];
+    if (typeof entry.summary !== "string") {
+      entry.summary = "";
+    }
     const project = next.projects[entry.projectId];
     if (!project) {
       delete next.entries[entryId];
@@ -685,6 +754,7 @@ function iterateAllEntries(workspace: WorkspaceData): SearchResult[] {
         projectTitle: project.title,
         chapterTitle: "未分章",
         timeText: entry.timeText,
+        summaryText: entry.summary,
         snippet: summarize(entry.sourceText, 120),
         citation: summarize(entry.citation, 80),
         tags: extractTags(entry.note),
@@ -709,6 +779,7 @@ function iterateAllEntries(workspace: WorkspaceData): SearchResult[] {
           projectTitle: project.title,
           chapterTitle: chapter.title,
           timeText: entry.timeText,
+          summaryText: entry.summary,
           snippet: summarize(entry.sourceText, 120),
           citation: summarize(entry.citation, 80),
           tags: extractTags(entry.note),
@@ -726,6 +797,29 @@ function normalizeTagInput(tag: string): string {
     return "";
   }
   return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+}
+
+function formatEntryHeadline(timeText: string, summaryText: string): string {
+  const timeLabel = timeText.trim() || "未著錄時間";
+  const summaryLabel = summaryText.trim();
+  return summaryLabel ? `${timeLabel}｜${summaryLabel}` : timeLabel;
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderLightMarkup(text: string): string {
+  let html = escapeHtml(text);
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/__([^_\n]+)__/g, "<u>$1</u>");
+  html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  return html.replace(/\r?\n/g, "<br />");
 }
 
 function filterEntriesByCriteria(workspace: WorkspaceData, criteria: EntryFilterCriteria): SearchResult[] {
@@ -749,6 +843,7 @@ function filterEntriesByCriteria(workspace: WorkspaceData, criteria: EntryFilter
             result.projectTitle,
             result.chapterTitle,
             entry.timeText,
+            entry.summary,
             entry.sourceText,
             entry.note,
             entry.citation,
@@ -819,6 +914,10 @@ function App() {
   });
 
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const entrySourceTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const leftPaneScrollRef = useRef<HTMLElement | null>(null);
+  const centerPaneScrollRef = useRef<HTMLElement | null>(null);
+  const rightPaneScrollRef = useRef<HTMLElement | null>(null);
 
   const activeProject = workspace.activeProjectId
     ? workspace.projects[workspace.activeProjectId] ?? null
@@ -918,6 +1017,46 @@ function App() {
       };
     });
   }, [workspace]);
+
+  useEffect(() => {
+    const elements = [leftPaneScrollRef.current, centerPaneScrollRef.current, rightPaneScrollRef.current].filter(
+      (node): node is HTMLElement => Boolean(node),
+    );
+    if (elements.length === 0) {
+      return;
+    }
+
+    const timers = new Map<HTMLElement, number>();
+    const listeners: Array<{ element: HTMLElement; handleScroll: () => void }> = [];
+
+    for (const element of elements) {
+      const handleScroll = () => {
+        element.dataset.scrolling = "true";
+        const activeTimer = timers.get(element);
+        if (activeTimer) {
+          window.clearTimeout(activeTimer);
+        }
+        const timer = window.setTimeout(() => {
+          delete element.dataset.scrolling;
+          timers.delete(element);
+        }, 680);
+        timers.set(element, timer);
+      };
+
+      element.addEventListener("scroll", handleScroll, { passive: true });
+      listeners.push({ element, handleScroll });
+    }
+
+    return () => {
+      for (const { element, handleScroll } of listeners) {
+        element.removeEventListener("scroll", handleScroll);
+        delete element.dataset.scrolling;
+      }
+      for (const timer of timers.values()) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, []);
 
   const hasSearch = Boolean(globalQuery.trim() || normalizeTagInput(selectedTag));
 
@@ -1191,6 +1330,14 @@ function App() {
     });
   }
 
+  function beginViewEntry(entryId: string): void {
+    const entry = workspace.entries[entryId];
+    if (!entry) {
+      return;
+    }
+    setModalState({ kind: "entry-view", entryId });
+  }
+
   function copyCurrentProject(projectId: string): void {
     const snapshot = collectProjectSnapshot(workspace, projectId);
     if (!snapshot) {
@@ -1257,7 +1404,20 @@ function App() {
         return;
       }
 
-      const entryId = appendEntryDraft(draft, targetProject.id, draft.activeChapterId, clipboard.draft);
+      const targetChapterId = draft.activeChapterId;
+      const insertAfterEntryId = resolveInsertAfterEntryId(
+        draft,
+        targetProject.id,
+        targetChapterId,
+        draft.selectedEntryId,
+      );
+      const entryId = appendEntryDraft(
+        draft,
+        targetProject.id,
+        targetChapterId,
+        clipboard.draft,
+        insertAfterEntryId,
+      );
       draft.selectedEntryId = entryId;
     });
   }
@@ -1274,14 +1434,19 @@ function App() {
   function openEntryContextMenu(event: MouseEvent, entryId: string): void {
     event.preventDefault();
     const menuWidth = 180;
-    const menuHeight = 140;
+    const menuHeight = 178;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "entry", entryId, x, y });
   }
 
   function applyFormModal(): void {
-    if (!modalState || modalState.kind === "entry-edit") {
+    if (
+      !modalState ||
+      modalState.kind === "entry-edit" ||
+      modalState.kind === "entry-create" ||
+      modalState.kind === "entry-view"
+    ) {
       return;
     }
 
@@ -1362,24 +1527,57 @@ function App() {
   }
 
   function applyEntryEditor(): void {
-    if (!modalState || modalState.kind !== "entry-edit") {
+    if (!modalState) {
       return;
     }
 
-    const { entryId, draft } = modalState;
-    mutateWorkspace((workspaceDraft) => {
-      const entry = workspaceDraft.entries[entryId];
-      if (!entry) {
-        return;
-      }
-      entry.timeText = draft.timeText;
-      entry.sourceText = draft.sourceText;
-      entry.note = draft.note;
-      entry.citation = draft.citation;
-      entry.updatedAt = Date.now();
-    });
+    if (modalState.kind === "entry-edit") {
+      const { entryId, draft } = modalState;
+      mutateWorkspace((workspaceDraft) => {
+        const entry = workspaceDraft.entries[entryId];
+        if (!entry) {
+          return;
+        }
+        entry.timeText = draft.timeText;
+        entry.summary = draft.summary;
+        entry.sourceText = draft.sourceText;
+        entry.note = draft.note;
+        entry.citation = draft.citation;
+        entry.updatedAt = Date.now();
+      });
+      setModalState(null);
+      return;
+    }
 
-    setModalState(null);
+    if (modalState.kind === "entry-create") {
+      const { projectId, chapterId, insertAfterEntryId, draft } = modalState;
+      mutateWorkspace((workspaceDraft) => {
+        const project = workspaceDraft.projects[projectId];
+        if (!project) {
+          return;
+        }
+
+        const targetChapterId =
+          chapterId && workspaceDraft.chapters[chapterId]?.projectId === projectId ? chapterId : null;
+        const safeInsertAfterId = resolveInsertAfterEntryId(
+          workspaceDraft,
+          projectId,
+          targetChapterId,
+          insertAfterEntryId,
+        );
+        const entryId = appendEntryDraft(
+          workspaceDraft,
+          projectId,
+          targetChapterId,
+          draft,
+          safeInsertAfterId,
+        );
+        workspaceDraft.activeProjectId = projectId;
+        workspaceDraft.activeChapterId = targetChapterId;
+        workspaceDraft.selectedEntryId = entryId;
+      });
+      setModalState(null);
+    }
   }
 
   function deleteProject(projectId: string): void {
@@ -1457,43 +1655,111 @@ function App() {
     });
   }
 
+  function updateEntryModalDraft(patch: Partial<EntryDraft>): void {
+      setModalState((current) => {
+        if (!current || (current.kind !== "entry-edit" && current.kind !== "entry-create")) {
+          return current;
+        }
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          ...patch,
+        },
+      };
+    });
+  }
+
+  function applySourceMarker(marker: "bold" | "italic" | "underline"): void {
+    const textarea = entrySourceTextareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    const token = marker === "bold" ? "**" : marker === "italic" ? "*" : "__";
+    const value = textarea.value;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const tokenLength = token.length;
+
+    const hasWrappedSelection =
+      start >= tokenLength &&
+      value.slice(start - tokenLength, start) === token &&
+      value.slice(end, end + tokenLength) === token &&
+      end > start;
+
+    let nextValue = value;
+    let nextStart = start;
+    let nextEnd = end;
+
+    if (hasWrappedSelection) {
+      nextValue =
+        value.slice(0, start - tokenLength) + value.slice(start, end) + value.slice(end + tokenLength);
+      nextStart = start - tokenLength;
+      nextEnd = end - tokenLength;
+    } else if (start === end) {
+      nextValue = value.slice(0, start) + token + token + value.slice(end);
+      nextStart = start + tokenLength;
+      nextEnd = nextStart;
+    } else {
+      nextValue = value.slice(0, start) + token + value.slice(start, end) + token + value.slice(end);
+      nextStart = start + tokenLength;
+      nextEnd = end + tokenLength;
+    }
+
+    updateEntryModalDraft({ sourceText: nextValue });
+    window.requestAnimationFrame(() => {
+      const input = entrySourceTextareaRef.current;
+      if (!input) {
+        return;
+      }
+      input.focus();
+      input.setSelectionRange(nextStart, nextEnd);
+    });
+  }
+
+  function handleSourceShortcut(event: ReactKeyboardEvent<HTMLTextAreaElement>): void {
+    if (event.nativeEvent.isComposing) {
+      return;
+    }
+    if ((!event.metaKey && !event.ctrlKey) || event.altKey) {
+      return;
+    }
+    const key = event.key.toLocaleLowerCase();
+    if (key === "b") {
+      event.preventDefault();
+      applySourceMarker("bold");
+      return;
+    }
+    if (key === "i") {
+      event.preventDefault();
+      applySourceMarker("italic");
+      return;
+    }
+    if (key === "u") {
+      event.preventDefault();
+      applySourceMarker("underline");
+    }
+  }
+
   function createEntry(): void {
     if (!activeProject) {
       return;
     }
 
-    const entryId = createId("entry");
-    mutateWorkspace((draft) => {
-      const project = draft.projects[activeProject.id];
-      if (!project) {
-        return;
-      }
-
-      draft.entries[entryId] = {
-        id: entryId,
-        projectId: project.id,
-        chapterId: draft.activeChapterId,
-        timeText: "",
-        sourceText: "",
-        note: "",
-        citation: "",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      if (draft.activeChapterId) {
-        draft.chapters[draft.activeChapterId]?.entryIds.push(entryId);
-      } else {
-        project.entryIds.push(entryId);
-      }
-
-      draft.selectedEntryId = entryId;
-    });
-
+    const chapterId = activeChapter?.id ?? null;
+    const insertAfterEntryId = resolveInsertAfterEntryId(
+      workspace,
+      activeProject.id,
+      chapterId,
+      workspace.selectedEntryId,
+    );
     setModalState({
-      kind: "entry-edit",
-      entryId,
-      draft: { timeText: "", sourceText: "", note: "", citation: "" },
+      kind: "entry-create",
+      projectId: activeProject.id,
+      chapterId,
+      insertAfterEntryId,
+      draft: createEmptyEntryDraft(),
     });
   }
 
@@ -1530,6 +1796,19 @@ function App() {
       if (draft.selectedEntryId === entryId) {
         draft.selectedEntryId = null;
       }
+    });
+
+    setModalState((current) => {
+      if (!current) {
+        return current;
+      }
+      if (current.kind === "entry-view" && current.entryId === entryId) {
+        return null;
+      }
+      if (current.kind === "entry-edit" && current.entryId === entryId) {
+        return null;
+      }
+      return current;
     });
   }
 
@@ -2059,8 +2338,20 @@ function App() {
   }
 
   const desktopMeta = window.desktopMeta;
-  const formModal = modalState && modalState.kind !== "entry-edit" ? modalState : null;
-  const entryModal = modalState?.kind === "entry-edit" ? modalState : null;
+  const formModal =
+    modalState &&
+    (modalState.kind === "project-create" ||
+      modalState.kind === "project-rename" ||
+      modalState.kind === "chapter-create" ||
+      modalState.kind === "chapter-rename")
+      ? modalState
+      : null;
+  const entryModal =
+    modalState && (modalState.kind === "entry-edit" || modalState.kind === "entry-create")
+      ? modalState
+      : null;
+  const entryViewModal = modalState?.kind === "entry-view" ? modalState : null;
+  const viewedEntry = entryViewModal ? workspace.entries[entryViewModal.entryId] ?? null : null;
 
   return (
     <>
@@ -2073,7 +2364,7 @@ function App() {
         <div className="ambient ambient-a" />
         <div className="ambient ambient-b" />
 
-        <aside className="left-pane panel">
+        <aside ref={leftPaneScrollRef} className="left-pane panel">
           <div className="pane-head">
             <h1>長編工作臺</h1>
             <p className="meta-text">
@@ -2265,7 +2556,7 @@ function App() {
           </div>
         </aside>
 
-        <main className="center-pane panel">
+        <main ref={centerPaneScrollRef} className="center-pane panel">
           <header className="center-head">
             <div>
               <p className="eyebrow">當前專案</p>
@@ -2310,6 +2601,7 @@ function App() {
                 const entryDragKey = `entry:${entry.id}`;
                 const entryDropKey = `entry:${entry.id}`;
                 const tags = extractTags(entry.note);
+                const notePreview = summarize(entry.note, 120);
 
                 return (
                   <article
@@ -2320,6 +2612,7 @@ function App() {
                         draft.selectedEntryId = entry.id;
                       });
                     }}
+                    onDoubleClick={() => beginViewEntry(entry.id)}
                     onContextMenu={(event) => openEntryContextMenu(event, entry.id)}
                     onDragOver={(event) => {
                       if (dragPayload?.type !== "entry") {
@@ -2359,7 +2652,9 @@ function App() {
                         ⋮⋮
                       </span>
 
-                      <h3>{entry.timeText.trim() || "未著錄時間"}</h3>
+                      <h3 className="entry-heading">
+                        {formatEntryHeadline(entry.timeText, entry.summary)}
+                      </h3>
 
                       <div className="entry-actions">
                         <button
@@ -2392,7 +2687,15 @@ function App() {
                       </div>
                     </div>
 
-                    <p className="entry-snippet">{summarize(entry.sourceText, 160) || "（尚未輸入史料文本）"}</p>
+                    {entry.sourceText.trim() ? (
+                      <p
+                        className="entry-snippet rich-markup clamp-4"
+                        dangerouslySetInnerHTML={{ __html: renderLightMarkup(entry.sourceText.trim()) }}
+                      />
+                    ) : (
+                      <p className="entry-snippet">（尚未輸入史料文本）</p>
+                    )}
+                    <p className="entry-note-preview">{notePreview || "（尚未輸入備註）"}</p>
                     <p className="entry-citation">{summarize(entry.citation, 90) || "（尚未輸入引文註釋）"}</p>
                     {tags.length > 0 && (
                       <div className="tag-row">
@@ -2410,7 +2713,7 @@ function App() {
           </section>
         </main>
 
-        <aside className="right-pane panel">
+        <aside ref={rightPaneScrollRef} className="right-pane panel">
           <section className="search-panel">
             <div className="search-head">
               <p className="eyebrow">全局檢索</p>
@@ -2419,7 +2722,7 @@ function App() {
 
             <input
               className="search-input"
-              placeholder="檢索時間、史料文本、備註、引文註釋..."
+              placeholder="檢索時間、摘要、史料文本、備註、引文註釋..."
               value={globalQuery}
               onChange={(event) => setGlobalQuery(event.target.value)}
             />
@@ -2454,11 +2757,17 @@ function App() {
                       key={result.entryId}
                       className="search-item"
                       onClick={() => jumpToSearchResult(result)}
+                      onDoubleClick={() => {
+                        jumpToSearchResult(result);
+                        beginViewEntry(result.entryId);
+                      }}
                     >
                       <div className="search-path">
                         {result.projectTitle} / {result.chapterTitle}
                       </div>
-                      <div className="search-time">{result.timeText || "未著錄時間"}</div>
+                      <div className="search-time">
+                        {formatEntryHeadline(result.timeText, result.summaryText)}
+                      </div>
                       <div className="search-snippet">{result.snippet || "（無文本）"}</div>
                       <div className="search-citation">{result.citation || "（無引文註釋）"}</div>
                       {result.tags.length > 0 && (
@@ -2541,6 +2850,15 @@ function App() {
             </>
           ) : (
             <>
+              <button
+                className="context-item"
+                onClick={() => {
+                  beginViewEntry(contextMenu.entryId);
+                  setContextMenu(null);
+                }}
+              >
+                檢視史料
+              </button>
               <button
                 className="context-item"
                 onClick={() => {
@@ -2660,7 +2978,12 @@ function App() {
                 onChange={(event) => {
                   const value = event.target.value;
                   setModalState((current) => {
-                    if (!current || current.kind === "entry-edit") {
+                    if (
+                      !current ||
+                      current.kind === "entry-view" ||
+                      current.kind === "entry-edit" ||
+                      current.kind === "entry-create"
+                    ) {
                       return current;
                     }
                     return { ...current, value };
@@ -2686,12 +3009,74 @@ function App() {
         </div>
       )}
 
+      {entryViewModal && viewedEntry && (
+        <div className="modal-backdrop" onMouseDown={() => setModalState(null)}>
+          <div className="modal-card modal-large entry-view-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h3>檢視史料</h3>
+              <p className="meta-text">
+                {workspace.projects[viewedEntry.projectId]?.title || "未命名專案"} /{" "}
+                {viewedEntry.chapterId
+                  ? workspace.chapters[viewedEntry.chapterId]?.title || "未分章"
+                  : "未分章"}
+              </p>
+            </div>
+
+            <div className="modal-grid entry-view-grid">
+              <section className="entry-view-block">
+                <div className="entry-view-title">時間</div>
+                <div className="entry-view-text">{viewedEntry.timeText.trim() || "未著錄時間"}</div>
+              </section>
+
+              <section className="entry-view-block">
+                <div className="entry-view-title">摘要</div>
+                <div className="entry-view-text">{viewedEntry.summary.trim() || "（無摘要）"}</div>
+              </section>
+
+              <section className="entry-view-block">
+                <div className="entry-view-title">史料文本</div>
+                {viewedEntry.sourceText.trim() ? (
+                  <div
+                    className="entry-view-source rich-markup"
+                    dangerouslySetInnerHTML={{ __html: renderLightMarkup(viewedEntry.sourceText.trim()) }}
+                  />
+                ) : (
+                  <div className="entry-view-text">（尚未輸入史料文本）</div>
+                )}
+              </section>
+
+              <section className="entry-view-block">
+                <div className="entry-view-title">備註</div>
+                <div className="entry-view-note">{viewedEntry.note.trim() || "（無備註）"}</div>
+              </section>
+
+              <section className="entry-view-block">
+                <div className="entry-view-title">引文註釋</div>
+                <div className="entry-view-citation">{viewedEntry.citation.trim() || "（無引文註釋）"}</div>
+              </section>
+            </div>
+
+            <div className="modal-actions">
+              <button className="ghost-btn" onClick={() => setModalState(null)}>
+                關閉
+              </button>
+              <button className="ghost-btn" onClick={() => beginEditEntry(viewedEntry.id)}>
+                編輯
+              </button>
+              <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
+                刪除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {entryModal && (
         <div className="modal-backdrop" onMouseDown={() => setModalState(null)}>
           <div className="modal-card modal-large" onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-head">
-              <h3>編輯史料</h3>
-              <p className="meta-text">四元素：時間 / 史料文本 / 備註 / 引文註釋；備註支持 `#標籤`。</p>
+              <h3>{entryModal.kind === "entry-create" ? "新增史料" : "編輯史料"}</h3>
+              <p className="meta-text">五元素：時間 / 摘要 / 史料文本 / 備註 / 引文註釋；備註支持 `#標籤`。</p>
             </div>
 
             <div className="modal-grid">
@@ -2699,33 +3084,58 @@ function App() {
                 時間（文本）
                 <input
                   value={entryModal.draft.timeText}
-                  onChange={(event) => {
-                    const timeText = event.target.value;
-                    setModalState((current) => {
-                      if (!current || current.kind !== "entry-edit") {
-                        return current;
-                      }
-                      return { ...current, draft: { ...current.draft, timeText } };
-                    });
-                  }}
+                  onChange={(event) => updateEntryModalDraft({ timeText: event.target.value })}
                   placeholder="如：萬曆二十年春 / 1644年 / 未詳"
                 />
               </label>
 
               <label className="modal-label">
+                摘要
+                <input
+                  value={entryModal.draft.summary}
+                  onChange={(event) => updateEntryModalDraft({ summary: event.target.value })}
+                  placeholder="例如：張居正改革前夕的朝議分歧"
+                />
+              </label>
+
+              <label className="modal-label">
                 史料文本
+                <div className="format-toolbar">
+                  <button
+                    type="button"
+                    className="icon-btn format-btn"
+                    title="粗體（⌘B）"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => applySourceMarker("bold")}
+                  >
+                    B
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn format-btn"
+                    title="斜體（⌘I）"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => applySourceMarker("italic")}
+                  >
+                    I
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn format-btn"
+                    title="下劃線（⌘U）"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => applySourceMarker("underline")}
+                  >
+                    U
+                  </button>
+                  <span className="format-tip">語法：`**粗體**` `*斜體*` `__下劃線__`</span>
+                </div>
                 <textarea
+                  ref={entrySourceTextareaRef}
                   rows={8}
                   value={entryModal.draft.sourceText}
-                  onChange={(event) => {
-                    const sourceText = event.target.value;
-                    setModalState((current) => {
-                      if (!current || current.kind !== "entry-edit") {
-                        return current;
-                      }
-                      return { ...current, draft: { ...current.draft, sourceText } };
-                    });
-                  }}
+                  onChange={(event) => updateEntryModalDraft({ sourceText: event.target.value })}
+                  onKeyDown={handleSourceShortcut}
                   placeholder="輸入原始史料文本..."
                 />
               </label>
@@ -2735,15 +3145,7 @@ function App() {
                 <textarea
                   rows={5}
                   value={entryModal.draft.note}
-                  onChange={(event) => {
-                    const note = event.target.value;
-                    setModalState((current) => {
-                      if (!current || current.kind !== "entry-edit") {
-                        return current;
-                      }
-                      return { ...current, draft: { ...current.draft, note } };
-                    });
-                  }}
+                  onChange={(event) => updateEntryModalDraft({ note: event.target.value })}
                   placeholder="例如：#政治 #人物關係 #萬曆朝 ..."
                 />
               </label>
@@ -2753,15 +3155,7 @@ function App() {
                 <textarea
                   rows={4}
                   value={entryModal.draft.citation}
-                  onChange={(event) => {
-                    const citation = event.target.value;
-                    setModalState((current) => {
-                      if (!current || current.kind !== "entry-edit") {
-                        return current;
-                      }
-                      return { ...current, draft: { ...current.draft, citation } };
-                    });
-                  }}
+                  onChange={(event) => updateEntryModalDraft({ citation: event.target.value })}
                   placeholder="例如：某書卷X，頁Y；《明史》《資治通鑑》..."
                 />
               </label>
@@ -2795,7 +3189,7 @@ function App() {
                   onChange={(event) =>
                     setAdvancedModal((state) => ({ ...state, query: event.target.value }))
                   }
-                  placeholder="檢索時間、史料文本、備註、引文註釋..."
+                  placeholder="檢索時間、摘要、史料文本、備註、引文註釋..."
                 />
               </label>
 
@@ -2861,14 +3255,25 @@ function App() {
                         key={`advanced-${result.entryId}`}
                         className="advanced-result"
                         onClick={() => jumpToSearchResult(result)}
+                        onDoubleClick={() => {
+                          jumpToSearchResult(result);
+                          beginViewEntry(result.entryId);
+                        }}
                       >
                         <div className="search-path">
                           {result.projectTitle} / {result.chapterTitle}
                         </div>
-                        <div className="search-time">{result.timeText || "未著錄時間"}</div>
-                        <div className="advanced-source">
-                          {entry?.sourceText.trim() || "（尚未輸入史料文本）"}
+                        <div className="search-time">
+                          {formatEntryHeadline(result.timeText, result.summaryText)}
                         </div>
+                        {entry?.sourceText.trim() ? (
+                          <div
+                            className="advanced-source rich-markup"
+                            dangerouslySetInnerHTML={{ __html: renderLightMarkup(entry.sourceText.trim()) }}
+                          />
+                        ) : (
+                          <div className="advanced-source">（尚未輸入史料文本）</div>
+                        )}
                         <div className="search-citation">
                           {entry?.citation.trim() || "（尚未輸入引文註釋）"}
                         </div>
