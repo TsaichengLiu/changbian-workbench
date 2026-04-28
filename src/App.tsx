@@ -218,8 +218,14 @@ interface ProjectSnapshot {
   }>;
 }
 
+interface ChapterSnapshot {
+  title: string;
+  entries: EntryDraft[];
+}
+
 type ClipboardState =
   | { kind: "project"; snapshot: ProjectSnapshot }
+  | { kind: "chapter"; snapshot: ChapterSnapshot }
   | { kind: "entry"; draft: EntryDraft }
   | null;
 
@@ -515,6 +521,35 @@ function ensureUniqueProjectTitle(
   return `${normalized} (${counter})`;
 }
 
+function ensureUniqueChapterTitle(
+  workspace: WorkspaceData,
+  projectId: string,
+  base: string,
+  ignoreChapterId?: string,
+): string {
+  const project = workspace.projects[projectId];
+  const normalized = base.trim() || "新章節";
+  if (!project) {
+    return normalized;
+  }
+  const existing = new Set(
+    project.chapterIds
+      .map((chapterId) => workspace.chapters[chapterId])
+      .filter((chapter): chapter is NonNullable<typeof chapter> => Boolean(chapter))
+      .filter((chapter) => chapter.id !== ignoreChapterId)
+      .map((chapter) => chapter.title),
+  );
+  if (!existing.has(normalized)) {
+    return normalized;
+  }
+
+  let counter = 2;
+  while (existing.has(`${normalized} (${counter})`)) {
+    counter += 1;
+  }
+  return `${normalized} (${counter})`;
+}
+
 function collectProjectSnapshot(workspace: WorkspaceData, projectId: string): ProjectSnapshot | null {
   const project = workspace.projects[projectId];
   if (!project) {
@@ -541,6 +576,21 @@ function collectProjectSnapshot(workspace: WorkspaceData, projectId: string): Pr
     title: project.title,
     directEntries,
     chapters,
+  };
+}
+
+function collectChapterSnapshot(workspace: WorkspaceData, chapterId: string): ChapterSnapshot | null {
+  const chapter = workspace.chapters[chapterId];
+  if (!chapter) {
+    return null;
+  }
+  const entries = chapter.entryIds
+    .map((entryId) => workspace.entries[entryId])
+    .filter((entry): entry is Entry => Boolean(entry))
+    .map(entryToDraft);
+  return {
+    title: chapter.title,
+    entries,
   };
 }
 
@@ -1354,6 +1404,14 @@ function App() {
     setClipboard({ kind: "project", snapshot });
   }
 
+  function copyChapterToClipboard(chapterId: string): void {
+    const snapshot = collectChapterSnapshot(workspace, chapterId);
+    if (!snapshot) {
+      return;
+    }
+    setClipboard({ kind: "chapter", snapshot });
+  }
+
   function pasteProjectFromClipboard(): void {
     if (!clipboard || clipboard.kind !== "project") {
       return;
@@ -1389,6 +1447,41 @@ function App() {
 
       draft.activeProjectId = projectId;
       draft.activeChapterId = null;
+      draft.selectedEntryId = firstEntryId;
+    });
+  }
+
+  function pasteChapterFromClipboard(): void {
+    if (!clipboard || clipboard.kind !== "chapter" || !activeProject) {
+      return;
+    }
+
+    mutateWorkspace((draft) => {
+      const project = draft.projects[activeProject.id];
+      if (!project) {
+        return;
+      }
+
+      const chapterId = createId("chapter");
+      draft.chapters[chapterId] = {
+        id: chapterId,
+        projectId: project.id,
+        title: ensureUniqueChapterTitle(draft, project.id, `${clipboard.snapshot.title}（副本）`),
+        entryIds: [],
+        createdAt: Date.now(),
+      };
+      project.chapterIds.push(chapterId);
+
+      let firstEntryId: string | null = null;
+      for (const item of clipboard.snapshot.entries) {
+        const entryId = appendEntryDraft(draft, project.id, chapterId, item);
+        if (!firstEntryId) {
+          firstEntryId = entryId;
+        }
+      }
+
+      draft.activeProjectId = project.id;
+      draft.activeChapterId = chapterId;
       draft.selectedEntryId = firstEntryId;
     });
   }
@@ -1433,7 +1526,7 @@ function App() {
   function openProjectContextMenu(event: MouseEvent, projectId: string): void {
     event.preventDefault();
     const menuWidth = 180;
-    const menuHeight = 104;
+    const menuHeight = 140;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "project", projectId, x, y });
@@ -1442,7 +1535,7 @@ function App() {
   function openChapterContextMenu(event: MouseEvent, chapterId: string): void {
     event.preventDefault();
     const menuWidth = 180;
-    const menuHeight = 62;
+    const menuHeight = 140;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "chapter", chapterId, x, y });
@@ -1451,7 +1544,7 @@ function App() {
   function openEntryContextMenu(event: MouseEvent, entryId: string): void {
     event.preventDefault();
     const menuWidth = 180;
-    const menuHeight = 140;
+    const menuHeight = 178;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "entry", entryId, x, y });
@@ -2446,17 +2539,17 @@ function App() {
           <div className="tool-row">
             <button
               className="ghost-btn"
-              disabled={!activeProject}
-              onClick={() => activeProject && copyCurrentProject(activeProject.id)}
-            >
-              複製當前專案
-            </button>
-            <button
-              className="ghost-btn"
               disabled={clipboard?.kind !== "project"}
               onClick={pasteProjectFromClipboard}
             >
               粘貼專案
+            </button>
+            <button
+              className="ghost-btn"
+              disabled={!activeProject || clipboard?.kind !== "chapter"}
+              onClick={pasteChapterFromClipboard}
+            >
+              粘貼章節
             </button>
           </div>
 
@@ -2533,16 +2626,6 @@ function App() {
                       <span className="project-title">{project.title}</span>
                       <span className="badge">{entryCount}</span>
                     </button>
-
-                    <div className="row-actions">
-                      <button
-                        className="icon-btn danger"
-                        title="刪除專案"
-                        onClick={() => deleteProject(project.id)}
-                      >
-                        刪
-                      </button>
-                    </div>
                   </div>
 
                   <div className="chapter-stack">
@@ -2594,16 +2677,6 @@ function App() {
                             <span>{chapter.title}</span>
                             <span className="badge">{chapter.entryIds.length}</span>
                           </button>
-
-                          <div className="row-actions">
-                            <button
-                              className="icon-btn danger"
-                              title="刪除"
-                              onClick={() => deleteChapter(chapter.id)}
-                            >
-                              刪
-                            </button>
-                          </div>
                         </div>
                       );
                     })}
@@ -2637,13 +2710,6 @@ function App() {
                 disabled={!activeProject || clipboard?.kind !== "entry"}
               >
                 粘貼史料
-              </button>
-              <button
-                className="ghost-btn"
-                onClick={() => activeProject && beginCreateChapter(activeProject.id)}
-                disabled={!activeProject}
-              >
-                + 新增章節
               </button>
             </div>
           </header>
@@ -2738,13 +2804,13 @@ function App() {
                           檢視
                         </button>
                         <button
-                          className="icon-btn danger"
+                          className="icon-btn"
                           onClick={(event) => {
                             event.stopPropagation();
-                            deleteEntry(entry.id);
+                            beginEditEntry(entry.id);
                           }}
                         >
-                          刪除
+                          編輯
                         </button>
                       </div>
                     </div>
@@ -2909,17 +2975,46 @@ function App() {
               >
                 複製專案
               </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  deleteProject(contextMenu.projectId);
+                  setContextMenu(null);
+                }}
+              >
+                刪除專案
+              </button>
             </>
           ) : contextMenu.kind === "chapter" ? (
-            <button
-              className="context-item"
-              onClick={() => {
-                beginRenameChapter(contextMenu.chapterId);
-                setContextMenu(null);
-              }}
-            >
-              編輯章節名
-            </button>
+            <>
+              <button
+                className="context-item"
+                onClick={() => {
+                  beginRenameChapter(contextMenu.chapterId);
+                  setContextMenu(null);
+                }}
+              >
+                編輯章節名
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  copyChapterToClipboard(contextMenu.chapterId);
+                  setContextMenu(null);
+                }}
+              >
+                複製章節
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  deleteChapter(contextMenu.chapterId);
+                  setContextMenu(null);
+                }}
+              >
+                刪除章節
+              </button>
+            </>
           ) : (
             <>
               <button
@@ -2930,6 +3025,15 @@ function App() {
                 }}
               >
                 檢視史料
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  beginEditEntry(contextMenu.entryId);
+                  setContextMenu(null);
+                }}
+              >
+                編輯史料
               </button>
               <button
                 className="context-item"
@@ -3198,6 +3302,9 @@ function App() {
             <div className="modal-actions">
               {entryViewModal.editing ? (
                 <>
+                  <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
+                    刪除
+                  </button>
                   <button className="ghost-btn" onClick={cancelEntryViewEditing}>
                     取消編輯
                   </button>
@@ -3207,17 +3314,17 @@ function App() {
                 </>
               ) : (
                 <>
-                  <button className="ghost-btn" onClick={() => setModalState(null)}>
-                    關閉
+                  <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
+                    刪除
                   </button>
                   <button className="ghost-btn" onClick={() => beginEditEntry(viewedEntry.id)}>
                     編輯
                   </button>
+                  <button className="ghost-btn" onClick={() => setModalState(null)}>
+                    關閉
+                  </button>
                 </>
               )}
-              <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
-                刪除
-              </button>
             </div>
           </div>
         </div>
