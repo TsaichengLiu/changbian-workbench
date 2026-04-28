@@ -2674,7 +2674,7 @@ function App() {
                             onContextMenu={(event) => openChapterContextMenu(event, chapter.id)}
                             title="右鍵可編輯章節名"
                           >
-                            <span>{chapter.title}</span>
+                            <span className="chapter-title">{chapter.title}</span>
                             <span className="badge">{chapter.entryIds.length}</span>
                           </button>
                         </div>
@@ -3179,14 +3179,19 @@ function App() {
       {entryViewModal && viewedEntry && (
         <div className="modal-backdrop" onMouseDown={() => setModalState(null)}>
           <div className="modal-card modal-large entry-view-modal" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head">
-              <h3>{entryViewModal.editing ? "檢視 / 編輯史料" : "檢視史料"}</h3>
-              <p className="meta-text">
-                {workspace.projects[viewedEntry.projectId]?.title || "未命名專案"} /{" "}
-                {viewedEntry.chapterId
-                  ? workspace.chapters[viewedEntry.chapterId]?.title || "未分章"
-                  : "未分章"}
-              </p>
+            <div className="modal-head entry-view-head">
+              <div className="entry-view-head-main">
+                <h3>{entryViewModal.editing ? "檢視 / 編輯史料" : "檢視史料"}</h3>
+                <p className="meta-text">
+                  {workspace.projects[viewedEntry.projectId]?.title || "未命名專案"} /{" "}
+                  {viewedEntry.chapterId
+                    ? workspace.chapters[viewedEntry.chapterId]?.title || "未分章"
+                    : "未分章"}
+                </p>
+              </div>
+              <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
+                刪除
+              </button>
             </div>
 
             <div className="modal-grid entry-view-grid">
@@ -3302,9 +3307,6 @@ function App() {
             <div className="modal-actions">
               {entryViewModal.editing ? (
                 <>
-                  <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
-                    刪除
-                  </button>
                   <button className="ghost-btn" onClick={cancelEntryViewEditing}>
                     取消編輯
                   </button>
@@ -3314,9 +3316,6 @@ function App() {
                 </>
               ) : (
                 <>
-                  <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
-                    刪除
-                  </button>
                   <button className="ghost-btn" onClick={() => beginEditEntry(viewedEntry.id)}>
                     編輯
                   </button>
