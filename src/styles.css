@@ -553,6 +553,9 @@ h3 {
   flex-direction: column;
   gap: 7px;
   min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .left-pane,

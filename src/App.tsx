@@ -228,7 +228,7 @@ type ModalState =
   | { kind: "project-rename"; projectId: string; value: string }
   | { kind: "chapter-create"; projectId: string; value: string }
   | { kind: "chapter-rename"; chapterId: string; value: string }
-  | { kind: "entry-view"; entryId: string }
+  | { kind: "entry-view"; entryId: string; editing: boolean; draft: EntryDraft }
   | {
       kind: "entry-create";
       projectId: string;
@@ -246,6 +246,13 @@ interface ProjectMenuState {
   y: number;
 }
 
+interface ChapterMenuState {
+  kind: "chapter";
+  chapterId: string;
+  x: number;
+  y: number;
+}
+
 interface EntryMenuState {
   kind: "entry";
   entryId: string;
@@ -253,7 +260,7 @@ interface EntryMenuState {
   y: number;
 }
 
-type ContextMenuState = ProjectMenuState | EntryMenuState;
+type ContextMenuState = ProjectMenuState | ChapterMenuState | EntryMenuState;
 
 interface MergeModalState {
   open: boolean;
@@ -1324,8 +1331,9 @@ function App() {
     }
 
     setModalState({
-      kind: "entry-edit",
+      kind: "entry-view",
       entryId,
+      editing: true,
       draft: entryToDraft(entry),
     });
   }
@@ -1335,7 +1343,7 @@ function App() {
     if (!entry) {
       return;
     }
-    setModalState({ kind: "entry-view", entryId });
+    setModalState({ kind: "entry-view", entryId, editing: false, draft: entryToDraft(entry) });
   }
 
   function copyCurrentProject(projectId: string): void {
@@ -1431,10 +1439,19 @@ function App() {
     setContextMenu({ kind: "project", projectId, x, y });
   }
 
+  function openChapterContextMenu(event: MouseEvent, chapterId: string): void {
+    event.preventDefault();
+    const menuWidth = 180;
+    const menuHeight = 62;
+    const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
+    const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
+    setContextMenu({ kind: "chapter", chapterId, x, y });
+  }
+
   function openEntryContextMenu(event: MouseEvent, entryId: string): void {
     event.preventDefault();
     const menuWidth = 180;
-    const menuHeight = 178;
+    const menuHeight = 140;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "entry", entryId, x, y });
@@ -1531,6 +1548,33 @@ function App() {
       return;
     }
 
+    if (modalState.kind === "entry-view" && modalState.editing) {
+      const { entryId, draft } = modalState;
+      mutateWorkspace((workspaceDraft) => {
+        const entry = workspaceDraft.entries[entryId];
+        if (!entry) {
+          return;
+        }
+        entry.timeText = draft.timeText;
+        entry.summary = draft.summary;
+        entry.sourceText = draft.sourceText;
+        entry.note = draft.note;
+        entry.citation = draft.citation;
+        entry.updatedAt = Date.now();
+      });
+      setModalState((current) => {
+        if (!current || current.kind !== "entry-view" || current.entryId !== entryId) {
+          return current;
+        }
+        return {
+          ...current,
+          editing: false,
+          draft,
+        };
+      });
+      return;
+    }
+
     if (modalState.kind === "entry-edit") {
       const { entryId, draft } = modalState;
       mutateWorkspace((workspaceDraft) => {
@@ -1578,6 +1622,23 @@ function App() {
       });
       setModalState(null);
     }
+  }
+
+  function cancelEntryViewEditing(): void {
+    setModalState((current) => {
+      if (!current || current.kind !== "entry-view" || !current.editing) {
+        return current;
+      }
+      const entry = workspace.entries[current.entryId];
+      if (!entry) {
+        return null;
+      }
+      return {
+        ...current,
+        editing: false,
+        draft: entryToDraft(entry),
+      };
+    });
   }
 
   function deleteProject(projectId: string): void {
@@ -1656,10 +1717,15 @@ function App() {
   }
 
   function updateEntryModalDraft(patch: Partial<EntryDraft>): void {
-      setModalState((current) => {
-        if (!current || (current.kind !== "entry-edit" && current.kind !== "entry-create")) {
-          return current;
-        }
+    setModalState((current) => {
+      if (
+        !current ||
+        (current.kind !== "entry-edit" &&
+          current.kind !== "entry-create" &&
+          (current.kind !== "entry-view" || !current.editing))
+      ) {
+        return current;
+      }
       return {
         ...current,
         draft: {
@@ -2352,6 +2418,7 @@ function App() {
       : null;
   const entryViewModal = modalState?.kind === "entry-view" ? modalState : null;
   const viewedEntry = entryViewModal ? workspace.entries[entryViewModal.entryId] ?? null : null;
+  const viewedEntryDraft = entryViewModal ? entryViewModal.draft : null;
 
   return (
     <>
@@ -2521,19 +2588,14 @@ function App() {
                           <button
                             className="chapter-main"
                             onClick={() => selectChapter(project.id, chapter.id)}
+                            onContextMenu={(event) => openChapterContextMenu(event, chapter.id)}
+                            title="右鍵可編輯章節名"
                           >
                             <span>{chapter.title}</span>
                             <span className="badge">{chapter.entryIds.length}</span>
                           </button>
 
                           <div className="row-actions">
-                            <button
-                              className="icon-btn"
-                              title="改名"
-                              onClick={() => beginRenameChapter(chapter.id)}
-                            >
-                              改
-                            </button>
                             <button
                               className="icon-btn danger"
                               title="刪除"
@@ -2670,10 +2732,10 @@ function App() {
                           className="icon-btn"
                           onClick={(event) => {
                             event.stopPropagation();
-                            beginEditEntry(entry.id);
+                            beginViewEntry(entry.id);
                           }}
                         >
-                          編輯
+                          檢視
                         </button>
                         <button
                           className="icon-btn danger"
@@ -2848,6 +2910,16 @@ function App() {
                 複製專案
               </button>
             </>
+          ) : contextMenu.kind === "chapter" ? (
+            <button
+              className="context-item"
+              onClick={() => {
+                beginRenameChapter(contextMenu.chapterId);
+                setContextMenu(null);
+              }}
+            >
+              編輯章節名
+            </button>
           ) : (
             <>
               <button
@@ -2867,15 +2939,6 @@ function App() {
                 }}
               >
                 複製史料
-              </button>
-              <button
-                className="context-item"
-                onClick={() => {
-                  beginEditEntry(contextMenu.entryId);
-                  setContextMenu(null);
-                }}
-              >
-                編輯史料
               </button>
               <button
                 className="context-item"
@@ -3013,7 +3076,7 @@ function App() {
         <div className="modal-backdrop" onMouseDown={() => setModalState(null)}>
           <div className="modal-card modal-large entry-view-modal" onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-head">
-              <h3>檢視史料</h3>
+              <h3>{entryViewModal.editing ? "檢視 / 編輯史料" : "檢視史料"}</h3>
               <p className="meta-text">
                 {workspace.projects[viewedEntry.projectId]?.title || "未命名專案"} /{" "}
                 {viewedEntry.chapterId
@@ -3025,20 +3088,78 @@ function App() {
             <div className="modal-grid entry-view-grid">
               <section className="entry-view-block">
                 <div className="entry-view-title">時間</div>
-                <div className="entry-view-text">{viewedEntry.timeText.trim() || "未著錄時間"}</div>
+                {entryViewModal.editing ? (
+                  <input
+                    autoFocus
+                    value={viewedEntryDraft?.timeText ?? ""}
+                    onChange={(event) => updateEntryModalDraft({ timeText: event.target.value })}
+                    placeholder="如：萬曆二十年春 / 1644年 / 未詳"
+                  />
+                ) : (
+                  <div className="entry-view-text">{viewedEntryDraft?.timeText.trim() || "未著錄時間"}</div>
+                )}
               </section>
 
               <section className="entry-view-block">
                 <div className="entry-view-title">摘要</div>
-                <div className="entry-view-text">{viewedEntry.summary.trim() || "（無摘要）"}</div>
+                {entryViewModal.editing ? (
+                  <input
+                    value={viewedEntryDraft?.summary ?? ""}
+                    onChange={(event) => updateEntryModalDraft({ summary: event.target.value })}
+                    placeholder="例如：張居正改革前夕的朝議分歧"
+                  />
+                ) : (
+                  <div className="entry-view-text">{viewedEntryDraft?.summary.trim() || "（無摘要）"}</div>
+                )}
               </section>
 
               <section className="entry-view-block">
                 <div className="entry-view-title">史料文本</div>
-                {viewedEntry.sourceText.trim() ? (
+                {entryViewModal.editing ? (
+                  <>
+                    <div className="format-toolbar">
+                      <button
+                        type="button"
+                        className="icon-btn format-btn"
+                        title="粗體（⌘B）"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => applySourceMarker("bold")}
+                      >
+                        B
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn format-btn"
+                        title="斜體（⌘I）"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => applySourceMarker("italic")}
+                      >
+                        I
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn format-btn"
+                        title="下劃線（⌘U）"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => applySourceMarker("underline")}
+                      >
+                        U
+                      </button>
+                      <span className="format-tip">語法：`**粗體**` `*斜體*` `__下劃線__`</span>
+                    </div>
+                    <textarea
+                      ref={entrySourceTextareaRef}
+                      rows={8}
+                      value={viewedEntryDraft?.sourceText ?? ""}
+                      onChange={(event) => updateEntryModalDraft({ sourceText: event.target.value })}
+                      onKeyDown={handleSourceShortcut}
+                      placeholder="輸入原始史料文本..."
+                    />
+                  </>
+                ) : viewedEntryDraft?.sourceText.trim() ? (
                   <div
                     className="entry-view-source rich-markup"
-                    dangerouslySetInnerHTML={{ __html: renderLightMarkup(viewedEntry.sourceText.trim()) }}
+                    dangerouslySetInnerHTML={{ __html: renderLightMarkup(viewedEntryDraft.sourceText.trim()) }}
                   />
                 ) : (
                   <div className="entry-view-text">（尚未輸入史料文本）</div>
@@ -3047,22 +3168,53 @@ function App() {
 
               <section className="entry-view-block">
                 <div className="entry-view-title">備註</div>
-                <div className="entry-view-note">{viewedEntry.note.trim() || "（無備註）"}</div>
+                {entryViewModal.editing ? (
+                  <textarea
+                    rows={5}
+                    value={viewedEntryDraft?.note ?? ""}
+                    onChange={(event) => updateEntryModalDraft({ note: event.target.value })}
+                    placeholder="例如：#政治 #人物關係 #萬曆朝 ..."
+                  />
+                ) : (
+                  <div className="entry-view-note">{viewedEntryDraft?.note.trim() || "（無備註）"}</div>
+                )}
               </section>
 
               <section className="entry-view-block">
                 <div className="entry-view-title">引文註釋</div>
-                <div className="entry-view-citation">{viewedEntry.citation.trim() || "（無引文註釋）"}</div>
+                {entryViewModal.editing ? (
+                  <textarea
+                    rows={5}
+                    value={viewedEntryDraft?.citation ?? ""}
+                    onChange={(event) => updateEntryModalDraft({ citation: event.target.value })}
+                    placeholder="如：某某書卷X，某某頁；可含《書名》供後續聚合"
+                  />
+                ) : (
+                  <div className="entry-view-citation">{viewedEntryDraft?.citation.trim() || "（無引文註釋）"}</div>
+                )}
               </section>
             </div>
 
             <div className="modal-actions">
-              <button className="ghost-btn" onClick={() => setModalState(null)}>
-                關閉
-              </button>
-              <button className="ghost-btn" onClick={() => beginEditEntry(viewedEntry.id)}>
-                編輯
-              </button>
+              {entryViewModal.editing ? (
+                <>
+                  <button className="ghost-btn" onClick={cancelEntryViewEditing}>
+                    取消編輯
+                  </button>
+                  <button className="secondary-btn" onClick={applyEntryEditor}>
+                    保存修改
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="ghost-btn" onClick={() => setModalState(null)}>
+                    關閉
+                  </button>
+                  <button className="ghost-btn" onClick={() => beginEditEntry(viewedEntry.id)}>
+                    編輯
+                  </button>
+                </>
+              )}
               <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
                 刪除
               </button>
