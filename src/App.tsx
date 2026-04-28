@@ -1,10 +1,175 @@
-import { type DragEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type DragEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ExportScope, exportAsDocx, exportAsTxt, exportAsXlsx } from "./exporters";
 import { matchesTraditionalSimplified } from "./search";
 import type { Entry, WorkspaceData } from "./types";
 import { createId, reorderById, summarize } from "./utils";
 
 const STORAGE_KEY = "longform_history_workbench_v3";
+const APPEARANCE_KEY = "longform_history_workbench_appearance_v1";
+
+type UiThemeId = "changbian" | "obsidian" | "ocean" | "graphite" | "dusk" | "vaporwave";
+type UiCardStyleId = "changbian" | "outline" | "frosted";
+
+interface AppearanceState {
+  theme: UiThemeId;
+  cardStyle: UiCardStyleId;
+}
+
+interface BookgetThemePreset {
+  background: [string, string, string];
+  accent: string;
+  glowA: string;
+  glowB: string;
+  ambientA: string;
+  ambientB: string;
+}
+
+const DEFAULT_APPEARANCE: AppearanceState = {
+  theme: "changbian",
+  cardStyle: "changbian",
+};
+
+const UI_THEME_IDS: UiThemeId[] = ["changbian", "obsidian", "ocean", "graphite", "dusk", "vaporwave"];
+const UI_CARD_STYLE_IDS: UiCardStyleId[] = ["changbian", "outline", "frosted"];
+
+const BOOKGET_THEME_PRESETS: Record<Exclude<UiThemeId, "changbian">, BookgetThemePreset> = {
+  obsidian: {
+    background: ["rgb(6% 6% 8%)", "rgb(2% 2% 3%)", "rgb(0% 0% 0%)"],
+    accent: "rgb(84% 80% 72%)",
+    glowA: "rgb(84% 80% 72% / 0.22)",
+    glowB: "rgb(100% 100% 100% / 0.07)",
+    ambientA: "rgb(84% 80% 72% / 0.3)",
+    ambientB: "rgb(100% 100% 100% / 0.07)",
+  },
+  ocean: {
+    background: ["rgb(5% 15% 24%)", "rgb(4% 36% 49%)", "rgb(8% 56% 52%)"],
+    accent: "rgb(45% 84% 90%)",
+    glowA: "rgb(45% 84% 90% / 0.22)",
+    glowB: "rgb(45% 84% 90% / 0.14)",
+    ambientA: "rgb(45% 84% 90% / 0.3)",
+    ambientB: "rgb(45% 84% 90% / 0.2)",
+  },
+  graphite: {
+    background: ["rgb(10% 10% 12%)", "rgb(14% 16% 20%)", "rgb(20% 21% 25%)"],
+    accent: "rgb(76% 80% 90%)",
+    glowA: "rgb(76% 80% 90% / 0.22)",
+    glowB: "rgb(100% 100% 100% / 0.07)",
+    ambientA: "rgb(76% 80% 90% / 0.3)",
+    ambientB: "rgb(100% 100% 100% / 0.07)",
+  },
+  dusk: {
+    background: ["rgb(35% 20% 17%)", "rgb(31% 14% 23%)", "rgb(11% 10% 20%)"],
+    accent: "rgb(94% 72% 57%)",
+    glowA: "rgb(94% 72% 57% / 0.22)",
+    glowB: "rgb(94% 72% 57% / 0.14)",
+    ambientA: "rgb(94% 72% 57% / 0.3)",
+    ambientB: "rgb(94% 72% 57% / 0.2)",
+  },
+  vaporwave: {
+    background: ["rgb(20% 10% 28%)", "rgb(56% 16% 46%)", "rgb(28% 24% 50%)"],
+    accent: "rgb(93% 53% 79%)",
+    glowA: "rgb(93% 53% 79% / 0.22)",
+    glowB: "rgb(93% 53% 79% / 0.14)",
+    ambientA: "rgb(93% 53% 79% / 0.3)",
+    ambientB: "rgb(93% 53% 79% / 0.2)",
+  },
+};
+
+function isUiThemeId(value: string): value is UiThemeId {
+  return UI_THEME_IDS.includes(value as UiThemeId);
+}
+
+function isUiCardStyleId(value: string): value is UiCardStyleId {
+  return UI_CARD_STYLE_IDS.includes(value as UiCardStyleId);
+}
+
+function normalizeAppearance(candidate: unknown, fallback: AppearanceState = DEFAULT_APPEARANCE): AppearanceState {
+  const obj = candidate && typeof candidate === "object" ? (candidate as Record<string, unknown>) : {};
+  const theme = typeof obj.theme === "string" && isUiThemeId(obj.theme) ? obj.theme : fallback.theme;
+  const cardStyle =
+    typeof obj.cardStyle === "string" && isUiCardStyleId(obj.cardStyle) ? obj.cardStyle : fallback.cardStyle;
+  return { theme, cardStyle };
+}
+
+function loadAppearance(): AppearanceState {
+  try {
+    const raw = localStorage.getItem(APPEARANCE_KEY);
+    if (!raw) {
+      return DEFAULT_APPEARANCE;
+    }
+    return normalizeAppearance(JSON.parse(raw), DEFAULT_APPEARANCE);
+  } catch {
+    return DEFAULT_APPEARANCE;
+  }
+}
+
+function bookgetTone(theme: Exclude<UiThemeId, "changbian">, cardStyle: UiCardStyleId): {
+  primary: string;
+  secondary: string;
+} {
+  const isFrosted = cardStyle === "frosted";
+  if (theme === "obsidian" || theme === "graphite") {
+    return {
+      primary: isFrosted ? "rgb(100% 100% 100% / 0.95)" : "rgb(100% 100% 100% / 0.96)",
+      secondary: isFrosted ? "rgb(100% 100% 100% / 0.75)" : "rgb(100% 100% 100% / 0.74)",
+    };
+  }
+  if (theme === "ocean") {
+    return {
+      primary: isFrosted ? "rgb(100% 100% 100% / 0.97)" : "rgb(100% 100% 100% / 0.98)",
+      secondary: isFrosted ? "rgb(100% 100% 100% / 0.82)" : "rgb(100% 100% 100% / 0.8)",
+    };
+  }
+  if (theme === "dusk") {
+    return {
+      primary: isFrosted ? "rgb(100% 95% 90%)" : "rgb(100% 95% 89%)",
+      secondary: isFrosted ? "rgb(95% 85% 78%)" : "rgb(92% 80% 72%)",
+    };
+  }
+  return {
+    primary: isFrosted ? "rgb(98% 94% 99%)" : "rgb(97% 92% 99%)",
+    secondary: isFrosted ? "rgb(92% 82% 91%)" : "rgb(88% 76% 88%)",
+  };
+}
+
+function appearanceVars(appearance: AppearanceState): CSSProperties {
+  const vars: Record<string, string> = {
+    "--bg-0": "#f5f0e5",
+    "--bg-1": "#ede5d6",
+    "--bg-2": "#e7ddcb",
+    "--bg-glow-a": "rgba(47, 111, 105, 0.2)",
+    "--bg-glow-b": "rgba(188, 129, 91, 0.22)",
+    "--ambient-a": "rgba(210, 165, 112, 0.32)",
+    "--ambient-b": "rgba(47, 111, 105, 0.26)",
+    "--ink-0": "#1f2527",
+    "--ink-1": "#405057",
+    "--accent": "#2f6f69",
+    "--panel": "rgba(248, 244, 234, 0.82)",
+    "--stroke": "rgba(46, 64, 69, 0.2)",
+    "--shadow": "0 18px 42px rgba(46, 52, 55, 0.15)",
+  };
+
+  if (appearance.theme !== "changbian") {
+    const preset = BOOKGET_THEME_PRESETS[appearance.theme];
+    const tone = bookgetTone(appearance.theme, appearance.cardStyle === "outline" ? "outline" : "frosted");
+
+    vars["--bg-0"] = preset.background[0];
+    vars["--bg-1"] = preset.background[1];
+    vars["--bg-2"] = preset.background[2];
+    vars["--bg-glow-a"] = preset.glowA;
+    vars["--bg-glow-b"] = preset.glowB;
+    vars["--ambient-a"] = preset.ambientA;
+    vars["--ambient-b"] = preset.ambientB;
+    vars["--accent"] = preset.accent;
+    vars["--ink-0"] = tone.primary;
+    vars["--ink-1"] = tone.secondary;
+    vars["--panel"] = "rgb(255 255 255 / 0.14)";
+    vars["--stroke"] = "rgb(255 255 255 / 0.24)";
+    vars["--shadow"] = "0 18px 42px rgb(0 0 0 / 0.34)";
+  }
+
+  return vars as CSSProperties;
+}
 
 const TAG_REGEX = /#([^\s#，。；、,.;:!?！？【】（）()<>《》]+)/g;
 const CITATION_TITLE_REGEX = /《([^》\n\r]+)》/g;
@@ -56,10 +221,20 @@ type ModalState =
   | null;
 
 interface ProjectMenuState {
+  kind: "project";
   projectId: string;
   x: number;
   y: number;
 }
+
+interface EntryMenuState {
+  kind: "entry";
+  entryId: string;
+  x: number;
+  y: number;
+}
+
+type ContextMenuState = ProjectMenuState | EntryMenuState;
 
 interface MergeModalState {
   open: boolean;
@@ -97,6 +272,13 @@ interface EntryFilterCriteria {
   query: string;
   tag: string;
   citationTitle: string;
+}
+
+interface WorkspaceStorageInfo {
+  path: string;
+  defaultPath: string;
+  envLocked: boolean;
+  envPath: string | null;
 }
 
 function entryToDraft(entry: Entry): EntryDraft {
@@ -181,18 +363,6 @@ function activeEntryIds(workspace: WorkspaceData): string[] {
   }
 
   return project.entryIds;
-}
-
-function moveToEnd(list: string[], sourceId: string): string[] {
-  const sourceIndex = list.indexOf(sourceId);
-  if (sourceIndex < 0 || sourceIndex === list.length - 1) {
-    return list;
-  }
-
-  const next = [...list];
-  const [moved] = next.splice(sourceIndex, 1);
-  next.push(moved);
-  return next;
 }
 
 function appendEntryDraft(
@@ -605,6 +775,7 @@ function filterEntriesByCriteria(workspace: WorkspaceData, criteria: EntryFilter
 
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceData>(() => loadWorkspace());
+  const [appearance, setAppearance] = useState<AppearanceState>(() => loadAppearance());
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
@@ -614,10 +785,15 @@ function App() {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [clipboard, setClipboard] = useState<ClipboardState>(null);
   const [modalState, setModalState] = useState<ModalState>(null);
-  const [projectMenu, setProjectMenu] = useState<ProjectMenuState | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [sharedSyncReady, setSharedSyncReady] = useState<boolean>(
     () => !window.workspaceBridge?.loadSharedWorkspace,
   );
+  const [storageModalOpen, setStorageModalOpen] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<WorkspaceStorageInfo | null>(null);
+  const [storagePathDraft, setStoragePathDraft] = useState("");
+  const [storageStatus, setStorageStatus] = useState("");
+  const [storageBusy, setStorageBusy] = useState(false);
   const [mergeModal, setMergeModal] = useState<MergeModalState>({
     open: false,
     mode: "as-new",
@@ -642,7 +818,7 @@ function App() {
     newChapterTitle: "合併章節",
   });
 
-  const projectMenuRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const activeProject = workspace.activeProjectId
     ? workspace.projects[workspace.activeProjectId] ?? null
@@ -650,6 +826,7 @@ function App() {
   const activeChapter = workspace.activeChapterId
     ? workspace.chapters[workspace.activeChapterId] ?? null
     : null;
+  const appShellStyle = useMemo(() => appearanceVars(appearance), [appearance]);
 
   const currentEntryIds = useMemo(() => activeEntryIds(workspace), [workspace]);
   const currentEntries = useMemo(
@@ -768,6 +945,49 @@ function App() {
   );
 
   useEffect(() => {
+    if (!window.workspaceBridge) {
+      return;
+    }
+
+    let cancelled = false;
+    async function loadStorageInfo(): Promise<void> {
+      try {
+        if (window.workspaceBridge?.getWorkspaceStorageInfo) {
+          const info = await window.workspaceBridge.getWorkspaceStorageInfo();
+          if (cancelled) {
+            return;
+          }
+          setStorageInfo(info);
+          setStoragePathDraft(info.path);
+          return;
+        }
+
+        if (window.workspaceBridge?.getSharedWorkspacePath) {
+          const path = await window.workspaceBridge.getSharedWorkspacePath();
+          if (cancelled) {
+            return;
+          }
+          const fallbackInfo: WorkspaceStorageInfo = {
+            path,
+            defaultPath: path,
+            envLocked: false,
+            envPath: null,
+          };
+          setStorageInfo(fallbackInfo);
+          setStoragePathDraft(path);
+        }
+      } catch {
+        // Ignore bridge errors and keep modal fallback behavior.
+      }
+    }
+
+    void loadStorageInfo();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!window.workspaceBridge?.loadSharedWorkspace) {
       setSharedSyncReady(true);
       return;
@@ -807,24 +1027,67 @@ function App() {
   }, [sharedSyncReady, workspace]);
 
   useEffect(() => {
+    localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance));
+    if (!window.appearanceBridge?.setAppearance) {
+      return;
+    }
+    void window.appearanceBridge.setAppearance(appearance).catch(() => {
+      // Ignore bridge errors and keep local appearance state.
+    });
+  }, [appearance]);
+
+  useEffect(() => {
+    if (!window.appearanceBridge) {
+      return;
+    }
+
+    let cancelled = false;
+    const unsubscribe =
+      window.appearanceBridge.onAppearanceChanged?.((next) => {
+        if (cancelled) {
+          return;
+        }
+        setAppearance((previous) => normalizeAppearance(next, previous));
+      }) ?? null;
+
+    void window.appearanceBridge
+      .getAppearance()
+      .then((next) => {
+        if (cancelled) {
+          return;
+        }
+        setAppearance((previous) => normalizeAppearance(next, previous));
+      })
+      .catch(() => {
+        // Ignore bridge errors and keep local appearance state.
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       if (
-        projectMenuRef.current &&
+        contextMenuRef.current &&
         event.target instanceof Node &&
-        projectMenuRef.current.contains(event.target)
+        contextMenuRef.current.contains(event.target)
       ) {
         return;
       }
-      setProjectMenu(null);
+      setContextMenu(null);
     }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setModalState(null);
-        setProjectMenu(null);
+        setContextMenu(null);
         setMergeModal((state) => ({ ...state, open: false }));
         setAdvancedModal((state) => ({ ...state, open: false }));
         setChapterMergeModal((state) => ({ ...state, open: false }));
+        setStorageModalOpen(false);
       }
     }
 
@@ -1005,7 +1268,16 @@ function App() {
     const menuHeight = 104;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
-    setProjectMenu({ projectId, x, y });
+    setContextMenu({ kind: "project", projectId, x, y });
+  }
+
+  function openEntryContextMenu(event: MouseEvent, entryId: string): void {
+    event.preventDefault();
+    const menuWidth = 180;
+    const menuHeight = 140;
+    const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
+    const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
+    setContextMenu({ kind: "entry", entryId, x, y });
   }
 
   function applyFormModal(): void {
@@ -1316,36 +1588,6 @@ function App() {
           return;
         }
         project.entryIds = reorderById(project.entryIds, dragPayload.id, targetEntryId);
-      }
-    });
-
-    clearDragState();
-  }
-
-  function onEntryDropToEnd(): void {
-    if (!dragPayload || dragPayload.type !== "entry" || !activeProject) {
-      return;
-    }
-
-    const sameScope =
-      dragPayload.projectId === activeProject.id && dragPayload.chapterId === (activeChapter?.id ?? null);
-    if (!sameScope) {
-      return;
-    }
-
-    mutateWorkspace((draft) => {
-      if (activeChapter) {
-        const chapter = draft.chapters[activeChapter.id];
-        if (!chapter) {
-          return;
-        }
-        chapter.entryIds = moveToEnd(chapter.entryIds, dragPayload.id);
-      } else {
-        const project = draft.projects[activeProject.id];
-        if (!project) {
-          return;
-        }
-        project.entryIds = moveToEnd(project.entryIds, dragPayload.id);
       }
     });
 
@@ -1677,6 +1919,136 @@ function App() {
     setChapterMergeModal((state) => ({ ...state, open: false }));
   }
 
+  async function refreshStorageInfo(): Promise<void> {
+    if (!window.workspaceBridge) {
+      return;
+    }
+
+    try {
+      if (window.workspaceBridge.getWorkspaceStorageInfo) {
+        const info = await window.workspaceBridge.getWorkspaceStorageInfo();
+        setStorageInfo(info);
+        setStoragePathDraft(info.path);
+        return;
+      }
+
+      if (window.workspaceBridge.getSharedWorkspacePath) {
+        const path = await window.workspaceBridge.getSharedWorkspacePath();
+        const fallbackInfo: WorkspaceStorageInfo = {
+          path,
+          defaultPath: path,
+          envLocked: false,
+          envPath: null,
+        };
+        setStorageInfo(fallbackInfo);
+        setStoragePathDraft(path);
+      }
+    } catch {
+      setStorageStatus("讀取資料路徑失敗。");
+    }
+  }
+
+  function openStorageModal(): void {
+    setStorageStatus("");
+    setStorageModalOpen(true);
+    void refreshStorageInfo();
+  }
+
+  async function chooseStoragePath(): Promise<void> {
+    if (!window.workspaceBridge?.pickSharedWorkspacePath) {
+      setStorageStatus("目前版本不支持檔案選擇器。");
+      return;
+    }
+
+    try {
+      const pickedPath = await window.workspaceBridge.pickSharedWorkspacePath();
+      if (pickedPath) {
+        setStoragePathDraft(pickedPath);
+        setStorageStatus("");
+      }
+    } catch {
+      setStorageStatus("打開檔案選擇器失敗。");
+    }
+  }
+
+  async function applyStoragePath(): Promise<void> {
+    if (!window.workspaceBridge?.setSharedWorkspacePath) {
+      setStorageStatus("目前版本不支持資料路徑切換。");
+      return;
+    }
+
+    const nextPath = storagePathDraft.trim();
+    if (!nextPath) {
+      setStorageStatus("請先輸入有效的資料檔路徑。");
+      return;
+    }
+
+    setStorageBusy(true);
+    setStorageStatus("");
+    try {
+      const result = await window.workspaceBridge.setSharedWorkspacePath(nextPath, workspace);
+      if (!result.ok) {
+        setStorageStatus(result.error || "切換失敗。");
+        return;
+      }
+
+      setStorageStatus(`已切換資料位置：${result.path ?? nextPath}`);
+      await refreshStorageInfo();
+    } catch {
+      setStorageStatus("切換資料路徑時發生錯誤。");
+    } finally {
+      setStorageBusy(false);
+    }
+  }
+
+  async function resetStoragePath(): Promise<void> {
+    if (!window.workspaceBridge?.resetSharedWorkspacePath) {
+      setStorageStatus("目前版本不支持重設資料路徑。");
+      return;
+    }
+
+    setStorageBusy(true);
+    setStorageStatus("");
+    try {
+      const result = await window.workspaceBridge.resetSharedWorkspacePath(workspace);
+      if (!result.ok) {
+        setStorageStatus(result.error || "重設失敗。");
+        return;
+      }
+
+      setStorageStatus(`已恢復預設資料位置：${result.path ?? ""}`);
+      await refreshStorageInfo();
+    } catch {
+      setStorageStatus("重設資料路徑時發生錯誤。");
+    } finally {
+      setStorageBusy(false);
+    }
+  }
+
+  async function reloadWorkspaceFromStorage(): Promise<void> {
+    if (!window.workspaceBridge?.loadSharedWorkspace) {
+      setStorageStatus("目前版本不支持從資料檔重載。");
+      return;
+    }
+
+    setStorageBusy(true);
+    setStorageStatus("");
+    try {
+      const raw = await window.workspaceBridge.loadSharedWorkspace();
+      if (!raw || typeof raw !== "object") {
+        setStorageStatus("當前資料檔尚無可載入資料。");
+        return;
+      }
+
+      setWorkspace(cleanupWorkspace(raw as WorkspaceData));
+      setStorageStatus("已從資料檔重新載入。");
+    } catch {
+      setStorageStatus("重新載入資料失敗。");
+    } finally {
+      setStorageBusy(false);
+    }
+  }
+
   async function exportWord(): Promise<void> {
     setIsExportingDocx(true);
     try {
@@ -1692,7 +2064,12 @@ function App() {
 
   return (
     <>
-      <div className="app-shell">
+      <div
+        className="app-shell"
+        data-theme={appearance.theme}
+        data-card-style={appearance.cardStyle}
+        style={appShellStyle}
+      >
         <div className="ambient ambient-a" />
         <div className="ambient ambient-b" />
 
@@ -1737,6 +2114,10 @@ function App() {
               合併章節
             </button>
           </div>
+
+          <button className="ghost-btn" onClick={openStorageModal}>
+            檔案資料管理
+          </button>
 
           <div className="sidebar-scroll">
             {workspace.projectOrder.map((projectId) => {
@@ -1939,6 +2320,7 @@ function App() {
                         draft.selectedEntryId = entry.id;
                       });
                     }}
+                    onContextMenu={(event) => openEntryContextMenu(event, entry.id)}
                     onDragOver={(event) => {
                       if (dragPayload?.type !== "entry") {
                         return;
@@ -2025,29 +2407,6 @@ function App() {
                 );
               })
             )}
-
-            <div
-              className={`entry-drop-end ${dropTargetKey === "entry:end" ? "active" : ""}`}
-              onDragOver={(event) => {
-                if (!dragPayload || dragPayload.type !== "entry" || !activeProject) {
-                  return;
-                }
-
-                const sameScope =
-                  dragPayload.projectId === activeProject.id &&
-                  dragPayload.chapterId === (activeChapter?.id ?? null);
-                if (!sameScope) {
-                  return;
-                }
-
-                event.preventDefault();
-                configureMoveDrag(event);
-                setDropTargetKey("entry:end");
-              }}
-              onDrop={onEntryDropToEnd}
-            >
-              拖到這裡可放到末尾
-            </div>
           </section>
         </main>
 
@@ -2153,30 +2512,131 @@ function App() {
         </aside>
       </div>
 
-      {projectMenu && (
+      {contextMenu && (
         <div
-          ref={projectMenuRef}
+          ref={contextMenuRef}
           className="context-menu"
-          style={{ left: projectMenu.x, top: projectMenu.y }}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          <button
-            className="context-item"
-            onClick={() => {
-              beginRenameProject(projectMenu.projectId);
-              setProjectMenu(null);
-            }}
-          >
-            編輯專案名
-          </button>
-          <button
-            className="context-item"
-            onClick={() => {
-              copyCurrentProject(projectMenu.projectId);
-              setProjectMenu(null);
-            }}
-          >
-            複製專案
-          </button>
+          {contextMenu.kind === "project" ? (
+            <>
+              <button
+                className="context-item"
+                onClick={() => {
+                  beginRenameProject(contextMenu.projectId);
+                  setContextMenu(null);
+                }}
+              >
+                編輯專案名
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  copyCurrentProject(contextMenu.projectId);
+                  setContextMenu(null);
+                }}
+              >
+                複製專案
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className="context-item"
+                onClick={() => {
+                  copyEntryToClipboard(contextMenu.entryId);
+                  setContextMenu(null);
+                }}
+              >
+                複製史料
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  beginEditEntry(contextMenu.entryId);
+                  setContextMenu(null);
+                }}
+              >
+                編輯史料
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  deleteEntry(contextMenu.entryId);
+                  setContextMenu(null);
+                }}
+              >
+                刪除史料
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {storageModalOpen && (
+        <div className="modal-backdrop" onMouseDown={() => setStorageModalOpen(false)}>
+          <div className="modal-card modal-large" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h3>檔案資料管理</h3>
+              <p className="meta-text">手動管理專案與史料資料檔的存放位置。</p>
+            </div>
+
+            <div className="modal-grid">
+              <label className="modal-label">
+                目前資料檔路徑
+                <p className="path-preview">{storageInfo?.path || "讀取中..."}</p>
+              </label>
+
+              <label className="modal-label">
+                新資料檔路徑
+                <input
+                  value={storagePathDraft}
+                  onChange={(event) => setStoragePathDraft(event.target.value)}
+                  placeholder="例如：/Users/xxx/Documents/workspace.json"
+                />
+              </label>
+
+              <div className="tool-row">
+                <button className="ghost-btn" onClick={() => void chooseStoragePath()} disabled={storageBusy}>
+                  選擇檔案...
+                </button>
+                <button className="ghost-btn" onClick={() => void refreshStorageInfo()} disabled={storageBusy}>
+                  刷新
+                </button>
+              </div>
+
+              {storageInfo?.envLocked && (
+                <p className="meta-text">
+                  目前由環境變數鎖定路徑：{storageInfo.envPath || storageInfo.path}
+                </p>
+              )}
+
+              {storageStatus && <p className="status-text">{storageStatus}</p>}
+            </div>
+
+            <div className="modal-actions">
+              <button className="ghost-btn" onClick={() => setStorageModalOpen(false)} disabled={storageBusy}>
+                關閉
+              </button>
+              <button className="ghost-btn" onClick={() => void reloadWorkspaceFromStorage()} disabled={storageBusy}>
+                從資料檔重載
+              </button>
+              <button
+                className="ghost-btn"
+                onClick={() => void resetStoragePath()}
+                disabled={storageBusy || Boolean(storageInfo?.envLocked)}
+              >
+                恢復預設路徑
+              </button>
+              <button
+                className="secondary-btn"
+                onClick={() => void applyStoragePath()}
+                disabled={storageBusy || Boolean(storageInfo?.envLocked)}
+              >
+                切換並保存
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

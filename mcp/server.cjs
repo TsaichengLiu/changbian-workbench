@@ -4,9 +4,30 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const STORAGE_FILE =
-  process.env.CHANGBIAN_MCP_STORE ||
-  path.join(os.homedir(), ".changbian-workbench", "workspace.json");
+const DEFAULT_STORAGE_FILE = path.join(os.homedir(), ".changbian-workbench", "workspace.json");
+const SETTINGS_FILE = path.join(os.homedir(), ".changbian-workbench", "settings.json");
+
+function resolveStorageFile() {
+  const envPath = (process.env.CHANGBIAN_MCP_STORE || "").trim();
+  if (envPath) {
+    return envPath;
+  }
+
+  try {
+    if (!fs.existsSync(SETTINGS_FILE)) {
+      return DEFAULT_STORAGE_FILE;
+    }
+    const raw = fs.readFileSync(SETTINGS_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    const configuredPath =
+      parsed && typeof parsed.workspacePath === "string" ? parsed.workspacePath.trim() : "";
+    return configuredPath || DEFAULT_STORAGE_FILE;
+  } catch {
+    return DEFAULT_STORAGE_FILE;
+  }
+}
+
+const STORAGE_FILE = resolveStorageFile();
 
 const TAG_REGEX = /#([^\s#，。；、,.;:!?！？【】（）()<>《》]+)/g;
 const CITATION_TITLE_REGEX = /《([^》\n\r]+)》/g;

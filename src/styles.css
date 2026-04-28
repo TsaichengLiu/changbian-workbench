@@ -1,6 +1,11 @@
 :root {
   --bg-0: #f5f0e5;
   --bg-1: #ede5d6;
+  --bg-2: #e7ddcb;
+  --bg-glow-a: rgba(47, 111, 105, 0.2);
+  --bg-glow-b: rgba(188, 129, 91, 0.22);
+  --ambient-a: rgba(210, 165, 112, 0.32);
+  --ambient-b: rgba(47, 111, 105, 0.26);
   --ink-0: #1f2527;
   --ink-1: #405057;
   --panel: rgba(248, 244, 234, 0.82);
@@ -25,10 +30,7 @@ body,
 body {
   font-family: "Avenir Next", "PingFang TC", "Hiragino Sans GB", "Microsoft JhengHei", sans-serif;
   color: var(--ink-0);
-  background:
-    radial-gradient(circle at 9% 16%, rgba(47, 111, 105, 0.2), transparent 36%),
-    radial-gradient(circle at 85% 10%, rgba(188, 129, 91, 0.22), transparent 40%),
-    linear-gradient(145deg, var(--bg-0), var(--bg-1));
+  background: linear-gradient(145deg, var(--bg-0), var(--bg-1), var(--bg-2));
 }
 
 button,
@@ -40,6 +42,7 @@ select {
 
 .app-shell {
   position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: 300px minmax(540px, 1fr) 380px;
   gap: 14px;
@@ -48,8 +51,21 @@ select {
   padding: 16px;
 }
 
+.app-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 9% 16%, var(--bg-glow-a), transparent 36%),
+    radial-gradient(circle at 85% 10%, var(--bg-glow-b), transparent 40%),
+    linear-gradient(145deg, var(--bg-0), var(--bg-1), var(--bg-2));
+}
+
 .ambient {
   position: fixed;
+  z-index: 0;
   border-radius: 999px;
   filter: blur(40px);
   pointer-events: none;
@@ -61,7 +77,7 @@ select {
   right: 30vw;
   width: 280px;
   height: 280px;
-  background: rgba(210, 165, 112, 0.32);
+  background: var(--ambient-a);
 }
 
 .ambient-b {
@@ -69,7 +85,7 @@ select {
   bottom: -100px;
   width: 360px;
   height: 360px;
-  background: rgba(47, 111, 105, 0.26);
+  background: var(--ambient-b);
 }
 
 .panel {
@@ -381,7 +397,7 @@ h3 {
   border-radius: 14px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.72);
-  cursor: pointer;
+  cursor: default;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -444,21 +460,6 @@ h3 {
   color: #1f5b54;
   padding: 0 10px;
   font-size: 12px;
-}
-
-.entry-drop-end {
-  border: 1px dashed rgba(46, 64, 69, 0.24);
-  border-radius: 12px;
-  padding: 10px;
-  text-align: center;
-  color: #587076;
-  background: rgba(255, 255, 255, 0.45);
-}
-
-.entry-drop-end.active {
-  border-color: rgba(47, 111, 105, 0.58);
-  background: rgba(219, 244, 239, 0.85);
-  color: #245853;
 }
 
 .search-panel,
@@ -684,6 +685,30 @@ h3 {
   color: #3e5960;
 }
 
+.path-preview {
+  margin: 0;
+  padding: 10px;
+  border: 1px dashed rgba(46, 64, 69, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #2e4b52;
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.status-text {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid rgba(47, 111, 105, 0.25);
+  border-radius: 10px;
+  background: rgba(227, 246, 242, 0.88);
+  color: #245953;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -801,6 +826,221 @@ h3 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) {
+  color: var(--ink-0);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .meta-text,
+.app-shell[data-theme]:not([data-theme="changbian"]) .eyebrow,
+.app-shell[data-theme]:not([data-theme="changbian"]) .result-meta,
+.app-shell[data-theme]:not([data-theme="changbian"]) .search-path,
+.app-shell[data-theme]:not([data-theme="changbian"]) .search-snippet,
+.app-shell[data-theme]:not([data-theme="changbian"]) .search-citation,
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-citation,
+.app-shell[data-theme]:not([data-theme="changbian"]) .modal-label,
+.app-shell[data-theme]:not([data-theme="changbian"]) .advanced-source,
+.app-shell[data-theme]:not([data-theme="changbian"]) .merge-group-title,
+.app-shell[data-theme]:not([data-theme="changbian"]) .context-item {
+  color: var(--ink-1);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) h1,
+.app-shell[data-theme]:not([data-theme="changbian"]) h2,
+.app-shell[data-theme]:not([data-theme="changbian"]) h3,
+.app-shell[data-theme]:not([data-theme="changbian"]) .project-main,
+.app-shell[data-theme]:not([data-theme="changbian"]) .chapter-main,
+.app-shell[data-theme]:not([data-theme="changbian"]) .project-title,
+.app-shell[data-theme]:not([data-theme="changbian"]) .search-time,
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-snippet,
+.app-shell[data-theme]:not([data-theme="changbian"]) .path-preview {
+  color: var(--ink-0);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .primary-btn {
+  border-color: color-mix(in srgb, var(--accent) 58%, rgb(255 255 255 / 0.2));
+  background: linear-gradient(
+    130deg,
+    color-mix(in srgb, var(--accent) 70%, #11151a),
+    color-mix(in srgb, var(--accent) 52%, #0a0d12)
+  );
+  color: var(--ink-0);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .primary-btn:hover {
+  filter: brightness(1.08);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .badge,
+.app-shell[data-theme]:not([data-theme="changbian"]) .tag-chip {
+  color: var(--ink-0);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .secondary-btn {
+  color: var(--ink-0);
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .ghost-btn,
+.app-shell[data-theme]:not([data-theme="changbian"]) .scope,
+.app-shell[data-theme]:not([data-theme="changbian"]) .icon-btn {
+  color: var(--ink-0);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .scope.active {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .project-main:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .chapter-main:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .drag-handle:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .search-item:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .advanced-result:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .merge-item:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .context-item:hover {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .project-block.active,
+.app-shell[data-theme]:not([data-theme="changbian"]) .chapter-row.active,
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-card:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .search-item:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .advanced-result:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .drop-target {
+  border-color: color-mix(in srgb, var(--accent) 68%, transparent);
+  outline-color: color-mix(in srgb, var(--accent) 68%, transparent);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .entry-card.selected {
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .context-menu {
+  border-color: color-mix(in srgb, var(--accent) 36%, transparent);
+  background: color-mix(in srgb, black 24%, white);
+}
+
+.app-shell[data-theme="obsidian"] .context-menu,
+.app-shell[data-theme="graphite"] .context-menu {
+  background: rgb(14 16 20 / 0.96);
+}
+
+.app-shell[data-theme="ocean"] .context-menu,
+.app-shell[data-theme="dusk"] .context-menu,
+.app-shell[data-theme="vaporwave"] .context-menu {
+  background: rgb(15 19 26 / 0.94);
+}
+
+.app-shell[data-card-style="outline"] .panel,
+.app-shell[data-card-style="outline"] .search-panel,
+.app-shell[data-card-style="outline"] .export-panel,
+.app-shell[data-card-style="outline"] .project-block,
+.app-shell[data-card-style="outline"] .chapter-row,
+.app-shell[data-card-style="outline"] .entry-card,
+.app-shell[data-card-style="outline"] .search-item,
+.app-shell[data-card-style="outline"] .empty-state,
+.app-shell[data-card-style="outline"] .empty-inline,
+.app-shell[data-card-style="outline"] .modal-card,
+.app-shell[data-card-style="outline"] .merge-list,
+.app-shell[data-card-style="outline"] .advanced-results,
+.app-shell[data-card-style="outline"] .advanced-result,
+.app-shell[data-card-style="outline"] .advanced-destination,
+.app-shell[data-card-style="outline"] .path-preview,
+.app-shell[data-card-style="outline"] .status-text {
+  position: relative;
+  border: 1px solid transparent;
+  background: rgb(255 255 255 / 0.14);
+  box-shadow: 0 6px 8px rgb(0 0 0 / 0.03);
+  backdrop-filter: none;
+}
+
+.app-shell[data-card-style="outline"] .panel::before,
+.app-shell[data-card-style="outline"] .search-panel::before,
+.app-shell[data-card-style="outline"] .export-panel::before,
+.app-shell[data-card-style="outline"] .project-block::before,
+.app-shell[data-card-style="outline"] .chapter-row::before,
+.app-shell[data-card-style="outline"] .entry-card::before,
+.app-shell[data-card-style="outline"] .search-item::before,
+.app-shell[data-card-style="outline"] .empty-state::before,
+.app-shell[data-card-style="outline"] .empty-inline::before,
+.app-shell[data-card-style="outline"] .modal-card::before,
+.app-shell[data-card-style="outline"] .merge-list::before,
+.app-shell[data-card-style="outline"] .advanced-results::before,
+.app-shell[data-card-style="outline"] .advanced-result::before,
+.app-shell[data-card-style="outline"] .advanced-destination::before,
+.app-shell[data-card-style="outline"] .path-preview::before,
+.app-shell[data-card-style="outline"] .status-text::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.68), rgb(255 255 255 / 0.42));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.app-shell[data-card-style="frosted"] .panel,
+.app-shell[data-card-style="frosted"] .search-panel,
+.app-shell[data-card-style="frosted"] .export-panel,
+.app-shell[data-card-style="frosted"] .project-block,
+.app-shell[data-card-style="frosted"] .chapter-row,
+.app-shell[data-card-style="frosted"] .entry-card,
+.app-shell[data-card-style="frosted"] .search-item,
+.app-shell[data-card-style="frosted"] .empty-state,
+.app-shell[data-card-style="frosted"] .empty-inline,
+.app-shell[data-card-style="frosted"] .modal-card,
+.app-shell[data-card-style="frosted"] .merge-list,
+.app-shell[data-card-style="frosted"] .advanced-results,
+.app-shell[data-card-style="frosted"] .advanced-result,
+.app-shell[data-card-style="frosted"] .advanced-destination,
+.app-shell[data-card-style="frosted"] .path-preview,
+.app-shell[data-card-style="frosted"] .status-text {
+  position: relative;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.28), rgb(255 255 255 / 0.1)),
+    rgb(255 255 255 / 0.08);
+  box-shadow: 0 6px 14px rgb(0 0 0 / 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.app-shell[data-card-style="frosted"] .panel::before,
+.app-shell[data-card-style="frosted"] .search-panel::before,
+.app-shell[data-card-style="frosted"] .export-panel::before,
+.app-shell[data-card-style="frosted"] .project-block::before,
+.app-shell[data-card-style="frosted"] .chapter-row::before,
+.app-shell[data-card-style="frosted"] .entry-card::before,
+.app-shell[data-card-style="frosted"] .search-item::before,
+.app-shell[data-card-style="frosted"] .empty-state::before,
+.app-shell[data-card-style="frosted"] .empty-inline::before,
+.app-shell[data-card-style="frosted"] .modal-card::before,
+.app-shell[data-card-style="frosted"] .merge-list::before,
+.app-shell[data-card-style="frosted"] .advanced-results::before,
+.app-shell[data-card-style="frosted"] .advanced-result::before,
+.app-shell[data-card-style="frosted"] .advanced-destination::before,
+.app-shell[data-card-style="frosted"] .path-preview::before,
+.app-shell[data-card-style="frosted"] .status-text::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.45), rgb(255 255 255 / 0.12));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
 @media (max-width: 1400px) {
