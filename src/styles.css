@@ -292,6 +292,7 @@ h3 {
 .project-main,
 .chapter-main {
   flex: 1;
+  min-width: 0;
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -325,6 +326,7 @@ h3 {
 .chapter-main .badge {
   margin-left: auto;
   flex: 0 0 auto;
+  max-width: 100%;
 }
 
 .drag-handle {
@@ -784,6 +786,7 @@ h3 {
 
 .entry-view-head {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;

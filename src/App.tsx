@@ -2672,7 +2672,7 @@ function App() {
                             className="chapter-main"
                             onClick={() => selectChapter(project.id, chapter.id)}
                             onContextMenu={(event) => openChapterContextMenu(event, chapter.id)}
-                            title="右鍵可編輯章節名"
+                            title={chapter.title}
                           >
                             <span className="chapter-title">{chapter.title}</span>
                             <span className="badge">{chapter.entryIds.length}</span>
