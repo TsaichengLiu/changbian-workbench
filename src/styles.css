@@ -121,6 +121,14 @@ select {
 .right-pane {
   padding: 14px;
   min-height: 0;
+}
+
+.left-pane,
+.center-pane {
+  overflow: hidden;
+}
+
+.right-pane {
   overflow: auto;
 }
 
@@ -254,7 +262,9 @@ h3 {
 }
 
 .sidebar-scroll {
+  flex: 1;
   min-height: 0;
+  overflow: auto;
   padding-right: 4px;
   display: flex;
   flex-direction: column;
@@ -409,7 +419,10 @@ h3 {
 }
 
 .entry-list {
+  flex: 1;
   min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -575,40 +588,52 @@ h3 {
 
 .left-pane,
 .center-pane,
-.right-pane {
+.right-pane,
+.sidebar-scroll,
+.entry-list {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
 
 .left-pane[data-scrolling="true"],
 .center-pane[data-scrolling="true"],
-.right-pane[data-scrolling="true"] {
+.right-pane[data-scrolling="true"],
+.sidebar-scroll[data-scrolling="true"],
+.entry-list[data-scrolling="true"] {
   scrollbar-color: rgba(46, 64, 69, 0.42) transparent;
 }
 
 .left-pane::-webkit-scrollbar,
 .center-pane::-webkit-scrollbar,
-.right-pane::-webkit-scrollbar {
+.right-pane::-webkit-scrollbar,
+.sidebar-scroll::-webkit-scrollbar,
+.entry-list::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
 .left-pane::-webkit-scrollbar-track,
 .center-pane::-webkit-scrollbar-track,
-.right-pane::-webkit-scrollbar-track {
+.right-pane::-webkit-scrollbar-track,
+.sidebar-scroll::-webkit-scrollbar-track,
+.entry-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .left-pane::-webkit-scrollbar-thumb,
 .center-pane::-webkit-scrollbar-thumb,
-.right-pane::-webkit-scrollbar-thumb {
+.right-pane::-webkit-scrollbar-thumb,
+.sidebar-scroll::-webkit-scrollbar-thumb,
+.entry-list::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: transparent;
 }
 
 .left-pane[data-scrolling="true"]::-webkit-scrollbar-thumb,
 .center-pane[data-scrolling="true"]::-webkit-scrollbar-thumb,
-.right-pane[data-scrolling="true"]::-webkit-scrollbar-thumb {
+.right-pane[data-scrolling="true"]::-webkit-scrollbar-thumb,
+.sidebar-scroll[data-scrolling="true"]::-webkit-scrollbar-thumb,
+.entry-list[data-scrolling="true"]::-webkit-scrollbar-thumb {
   background: rgba(46, 64, 69, 0.38);
 }
 

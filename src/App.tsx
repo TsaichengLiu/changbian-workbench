@@ -230,9 +230,9 @@ type ClipboardState =
   | null;
 
 type ModalState =
-  | { kind: "project-create"; value: string }
+  | { kind: "project-create"; value: string; insertAfterProjectId: string | null }
   | { kind: "project-rename"; projectId: string; value: string }
-  | { kind: "chapter-create"; projectId: string; value: string }
+  | { kind: "chapter-create"; projectId: string; value: string; insertAfterChapterId: string | null }
   | { kind: "chapter-rename"; chapterId: string; value: string }
   | { kind: "entry-view"; entryId: string; editing: boolean; draft: EntryDraft }
   | {
@@ -1008,7 +1008,7 @@ function App() {
 
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const entrySourceTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const leftPaneScrollRef = useRef<HTMLElement | null>(null);
+  const leftPaneScrollRef = useRef<HTMLDivElement | null>(null);
   const centerPaneScrollRef = useRef<HTMLElement | null>(null);
   const rightPaneScrollRef = useRef<HTMLElement | null>(null);
 
@@ -1380,8 +1380,8 @@ function App() {
     });
   }
 
-  function beginCreateProject(): void {
-    setModalState({ kind: "project-create", value: "新建專案" });
+  function beginCreateProject(insertAfterProjectId: string | null = null): void {
+    setModalState({ kind: "project-create", value: "新建專案", insertAfterProjectId });
   }
 
   function beginRenameProject(projectId: string): void {
@@ -1392,7 +1392,7 @@ function App() {
     setModalState({ kind: "project-rename", projectId, value: project.title });
   }
 
-  function beginCreateChapter(projectId: string): void {
+  function beginCreateChapter(projectId: string, insertAfterChapterId: string | null = null): void {
     const project = workspace.projects[projectId];
     if (!project) {
       return;
@@ -1400,6 +1400,7 @@ function App() {
     setModalState({
       kind: "chapter-create",
       projectId,
+      insertAfterChapterId,
       value: `第${project.chapterIds.length + 1}章`,
     });
   }
@@ -1434,6 +1435,20 @@ function App() {
     setModalState({ kind: "entry-view", entryId, editing: false, draft: entryToDraft(entry) });
   }
 
+  function beginCreateEntryAfter(entryId: string): void {
+    const entry = workspace.entries[entryId];
+    if (!entry) {
+      return;
+    }
+    setModalState({
+      kind: "entry-create",
+      projectId: entry.projectId,
+      chapterId: entry.chapterId,
+      insertAfterEntryId: entry.id,
+      draft: createEmptyEntryDraft(),
+    });
+  }
+
   function copyCurrentProject(projectId: string): void {
     const snapshot = collectProjectSnapshot(workspace, projectId);
     if (!snapshot) {
@@ -1450,7 +1465,7 @@ function App() {
     setClipboard({ kind: "chapter", snapshot });
   }
 
-  function pasteProjectFromClipboard(): void {
+  function pasteProjectFromClipboard(insertAfterProjectId: string | null = null): void {
     if (!clipboard || clipboard.kind !== "project") {
       return;
     }
@@ -1465,7 +1480,16 @@ function App() {
         entryIds: [],
         createdAt: Date.now(),
       };
-      draft.projectOrder.push(projectId);
+      if (insertAfterProjectId) {
+        const index = draft.projectOrder.indexOf(insertAfterProjectId);
+        if (index >= 0) {
+          draft.projectOrder.splice(index + 1, 0, projectId);
+        } else {
+          draft.projectOrder.push(projectId);
+        }
+      } else {
+        draft.projectOrder.push(projectId);
+      }
 
       let firstEntryId: string | null = null;
       for (const item of clipboard.snapshot.directEntries) {
@@ -1489,13 +1513,18 @@ function App() {
     });
   }
 
-  function pasteChapterFromClipboard(): void {
-    if (!clipboard || clipboard.kind !== "chapter" || !activeProject) {
+  function pasteChapterFromClipboard(targetProjectId?: string, insertAfterChapterId: string | null = null): void {
+    if (!clipboard || clipboard.kind !== "chapter") {
+      return;
+    }
+
+    const resolvedProjectId = targetProjectId ?? activeProject?.id ?? null;
+    if (!resolvedProjectId) {
       return;
     }
 
     mutateWorkspace((draft) => {
-      const project = draft.projects[activeProject.id];
+      const project = draft.projects[resolvedProjectId];
       if (!project) {
         return;
       }
@@ -1508,7 +1537,16 @@ function App() {
         entryIds: [],
         createdAt: Date.now(),
       };
-      project.chapterIds.push(chapterId);
+      if (insertAfterChapterId && draft.chapters[insertAfterChapterId]?.projectId === project.id) {
+        const index = project.chapterIds.indexOf(insertAfterChapterId);
+        if (index >= 0) {
+          project.chapterIds.splice(index + 1, 0, chapterId);
+        } else {
+          project.chapterIds.push(chapterId);
+        }
+      } else {
+        project.chapterIds.push(chapterId);
+      }
 
       let firstEntryId: string | null = null;
       for (const item of clipboard.snapshot.entries) {
@@ -1532,31 +1570,49 @@ function App() {
     setClipboard({ kind: "entry", draft: entryToDraft(entry) });
   }
 
-  function pasteEntryFromClipboard(): void {
-    if (!clipboard || clipboard.kind !== "entry" || !activeProject) {
+  function pasteEntryFromClipboard(
+    targetProjectId?: string,
+    targetChapterId?: string | null,
+    insertAfterEntryId?: string | null,
+  ): void {
+    if (!clipboard || clipboard.kind !== "entry") {
+      return;
+    }
+
+    const resolvedProjectId = targetProjectId ?? activeProject?.id ?? null;
+    if (!resolvedProjectId) {
       return;
     }
 
     mutateWorkspace((draft) => {
-      const targetProject = draft.projects[activeProject.id];
+      const targetProject = draft.projects[resolvedProjectId];
       if (!targetProject) {
         return;
       }
 
-      const targetChapterId = draft.activeChapterId;
-      const insertAfterEntryId = resolveInsertAfterEntryId(
+      const scopedChapterId =
+        targetChapterId !== undefined
+          ? targetChapterId && draft.chapters[targetChapterId]?.projectId === targetProject.id
+            ? targetChapterId
+            : null
+          : draft.activeChapterId && draft.chapters[draft.activeChapterId]?.projectId === targetProject.id
+            ? draft.activeChapterId
+            : null;
+      const safeInsertAfterEntryId = resolveInsertAfterEntryId(
         draft,
         targetProject.id,
-        targetChapterId,
-        draft.selectedEntryId,
+        scopedChapterId,
+        insertAfterEntryId ?? draft.selectedEntryId,
       );
       const entryId = appendEntryDraft(
         draft,
         targetProject.id,
-        targetChapterId,
+        scopedChapterId,
         clipboard.draft,
-        insertAfterEntryId,
+        safeInsertAfterEntryId,
       );
+      draft.activeProjectId = targetProject.id;
+      draft.activeChapterId = scopedChapterId;
       draft.selectedEntryId = entryId;
     });
   }
@@ -1564,7 +1620,7 @@ function App() {
   function openProjectContextMenu(event: MouseEvent, projectId: string): void {
     event.preventDefault();
     const menuWidth = 180;
-    const menuHeight = 140;
+    const menuHeight = 230;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "project", projectId, x, y });
@@ -1573,7 +1629,7 @@ function App() {
   function openChapterContextMenu(event: MouseEvent, chapterId: string): void {
     event.preventDefault();
     const menuWidth = 180;
-    const menuHeight = 140;
+    const menuHeight = 230;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "chapter", chapterId, x, y });
@@ -1582,7 +1638,7 @@ function App() {
   function openEntryContextMenu(event: MouseEvent, entryId: string): void {
     event.preventDefault();
     const menuWidth = 180;
-    const menuHeight = 178;
+    const menuHeight = 260;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "entry", entryId, x, y });
@@ -1609,7 +1665,16 @@ function App() {
           entryIds: [],
           createdAt: Date.now(),
         };
-        draft.projectOrder.push(projectId);
+        if (modalState.insertAfterProjectId) {
+          const index = draft.projectOrder.indexOf(modalState.insertAfterProjectId);
+          if (index >= 0) {
+            draft.projectOrder.splice(index + 1, 0, projectId);
+          } else {
+            draft.projectOrder.push(projectId);
+          }
+        } else {
+          draft.projectOrder.push(projectId);
+        }
         draft.activeProjectId = projectId;
         draft.activeChapterId = null;
         draft.selectedEntryId = null;
@@ -1651,7 +1716,16 @@ function App() {
           entryIds: [],
           createdAt: Date.now(),
         };
-        project.chapterIds.push(chapterId);
+        if (modalState.insertAfterChapterId && draft.chapters[modalState.insertAfterChapterId]?.projectId === project.id) {
+          const index = project.chapterIds.indexOf(modalState.insertAfterChapterId);
+          if (index >= 0) {
+            project.chapterIds.splice(index + 1, 0, chapterId);
+          } else {
+            project.chapterIds.push(chapterId);
+          }
+        } else {
+          project.chapterIds.push(chapterId);
+        }
         draft.activeProjectId = modalState.projectId;
         draft.activeChapterId = chapterId;
         draft.selectedEntryId = null;
@@ -2567,7 +2641,7 @@ function App() {
         <div className="ambient ambient-a" />
         <div className="ambient ambient-b" />
 
-        <aside ref={leftPaneScrollRef} className="left-pane panel">
+        <aside className="left-pane panel">
           <div className="pane-head">
             <h1>長編工作臺</h1>
             <p className="meta-text">
@@ -2613,7 +2687,7 @@ function App() {
             檔案資料管理
           </button>
 
-          <div className="sidebar-scroll">
+          <div ref={leftPaneScrollRef} className="sidebar-scroll">
             {workspace.projectOrder.map((projectId) => {
               const project = workspace.projects[projectId];
               if (!project) {
@@ -2734,7 +2808,7 @@ function App() {
           </div>
         </aside>
 
-        <main ref={centerPaneScrollRef} className="center-pane panel">
+        <main className="center-pane panel">
           <header className="center-head">
             <div>
               <p className="eyebrow">當前專案</p>
@@ -2757,7 +2831,7 @@ function App() {
             </div>
           </header>
 
-          <section className="entry-list">
+          <section ref={centerPaneScrollRef} className="entry-list">
             {currentEntries.length === 0 ? (
               <div className="empty-state">
                 <h3>尚無史料</h3>
@@ -3003,6 +3077,24 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
+                  beginCreateProject(contextMenu.projectId);
+                  setContextMenu(null);
+                }}
+              >
+                新增專案
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  pasteProjectFromClipboard(contextMenu.projectId);
+                  setContextMenu(null);
+                }}
+              >
+                粘貼專案
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
                   beginRenameProject(contextMenu.projectId);
                   setContextMenu(null);
                 }}
@@ -3030,6 +3122,30 @@ function App() {
             </>
           ) : contextMenu.kind === "chapter" ? (
             <>
+              <button
+                className="context-item"
+                onClick={() => {
+                  const chapter = workspace.chapters[contextMenu.chapterId];
+                  if (chapter) {
+                    beginCreateChapter(chapter.projectId, chapter.id);
+                  }
+                  setContextMenu(null);
+                }}
+              >
+                新增章節
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  const chapter = workspace.chapters[contextMenu.chapterId];
+                  if (chapter) {
+                    pasteChapterFromClipboard(chapter.projectId, chapter.id);
+                  }
+                  setContextMenu(null);
+                }}
+              >
+                粘貼章節
+              </button>
               <button
                 className="context-item"
                 onClick={() => {
@@ -3077,6 +3193,27 @@ function App() {
                 }}
               >
                 編輯史料
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  beginCreateEntryAfter(contextMenu.entryId);
+                  setContextMenu(null);
+                }}
+              >
+                新增史料
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  const entry = workspace.entries[contextMenu.entryId];
+                  if (entry) {
+                    pasteEntryFromClipboard(entry.projectId, entry.chapterId, entry.id);
+                  }
+                  setContextMenu(null);
+                }}
+              >
+                粘貼史料
               </button>
               <button
                 className="context-item"
