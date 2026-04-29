@@ -1,4 +1,13 @@
-import { Document, HeadingLevel, Packer, Paragraph, TextRun, UnderlineType } from "docx";
+import {
+  Document,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  TableOfContents,
+  TextRun,
+  UnderlineType,
+  type IRunOptions,
+} from "docx";
 import * as XLSX from "xlsx";
 import type { Chapter, Entry, OrderedEntryRef, Project, WorkspaceData } from "./types";
 import { downloadBlob, sanitizeFilename } from "./utils";
@@ -109,12 +118,16 @@ function parseLightMarkupSegments(text: string): MarkupSegment[] {
   return segments;
 }
 
-function segmentToRuns(segment: MarkupSegment): TextRun[] {
+function segmentToRuns(
+  segment: MarkupSegment,
+  baseOptions: Omit<IRunOptions, "text" | "break" | "bold" | "italics" | "underline"> = {},
+): TextRun[] {
   const lines = segment.text.split(/\r?\n/);
   const runs: TextRun[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     runs.push(
       new TextRun({
+        ...baseOptions,
         text: lines[index] ?? "",
         bold: segment.bold,
         italics: segment.italic,
@@ -126,13 +139,43 @@ function segmentToRuns(segment: MarkupSegment): TextRun[] {
   return runs;
 }
 
-function sourceTextRuns(text: string): TextRun[] {
+function sourceTextRuns(
+  text: string,
+  baseOptions: Omit<IRunOptions, "text" | "break" | "bold" | "italics" | "underline"> = {},
+): TextRun[] {
   const segments = parseLightMarkupSegments(text);
   if (segments.length === 0) {
-    return [new TextRun("")];
+    return [new TextRun({ ...baseOptions, text: "" })];
   }
-  return segments.flatMap((segment) => segmentToRuns(segment));
+  return segments.flatMap((segment) => segmentToRuns(segment, baseOptions));
 }
+
+function plainTextRuns(
+  text: string,
+  baseOptions: Omit<IRunOptions, "text" | "break"> = {},
+): TextRun[] {
+  const lines = (text || "").split(/\r?\n/);
+  return lines.map(
+    (line, index) =>
+      new TextRun({
+        ...baseOptions,
+        text: line,
+        break: index > 0 ? 1 : undefined,
+      }),
+  );
+}
+
+const DOCX_INDENT = {
+  chapter: 360,
+  entry: 720,
+} as const;
+
+const KAITI_FONT: IRunOptions["font"] = {
+  ascii: "KaiTi",
+  hAnsi: "KaiTi",
+  eastAsia: "KaiTi",
+  cs: "KaiTi",
+};
 
 export function exportAsTxt(workspace: WorkspaceData, scope: ExportScope): void {
   const projects = getExportProjects(workspace, scope);
@@ -194,45 +237,61 @@ export function exportAsTxt(workspace: WorkspaceData, scope: ExportScope): void 
 }
 
 function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entry): void {
+  const sharedIndent = DOCX_INDENT.entry;
+
   children.push(
     new Paragraph({
       text: `${order}. ${entryHeadline(entry)}`,
       heading: HeadingLevel.HEADING_3,
+      indent: { left: sharedIndent },
+      spacing: { before: 80, after: 60 },
     }),
   );
 
   children.push(
     new Paragraph({
+      heading: HeadingLevel.HEADING_3,
+      indent: { left: sharedIndent },
+      spacing: { after: 70 },
       children: [
         new TextRun({ text: "摘要：", bold: true }),
-        new TextRun(entry.summary || ""),
+        ...plainTextRuns(entry.summary || "（無）"),
       ],
     }),
   );
 
   children.push(
     new Paragraph({
+      indent: { left: sharedIndent },
+      spacing: { after: 80 },
       children: [
         new TextRun({ text: "史料文本：", bold: true }),
-        ...sourceTextRuns(entry.sourceText || ""),
+        new TextRun({ text: "", break: 1 }),
+        ...sourceTextRuns(entry.sourceText || "（無）"),
       ],
     }),
   );
 
   children.push(
     new Paragraph({
+      indent: { left: sharedIndent },
+      spacing: { after: 80 },
       children: [
         new TextRun({ text: "備註：", bold: true }),
-        new TextRun(entry.note || ""),
+        new TextRun({ text: "", break: 1 }),
+        ...plainTextRuns(entry.note || "（無）", { font: KAITI_FONT }),
       ],
     }),
   );
 
   children.push(
     new Paragraph({
+      indent: { left: sharedIndent },
+      spacing: { after: 120 },
       children: [
         new TextRun({ text: "引文註釋：", bold: true }),
-        new TextRun(entry.citation || ""),
+        new TextRun({ text: "", break: 1 }),
+        ...plainTextRuns(entry.citation || "（無）"),
       ],
     }),
   );
@@ -245,13 +304,24 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
       text: "長編工作臺匯出",
       heading: HeadingLevel.TITLE,
     }),
+    new Paragraph({
+      children: [new TextRun({ text: `匯出時間：${formatDate(Date.now())}` })],
+      spacing: { after: 180 },
+    }),
+    new TableOfContents("目錄", {
+      headingStyleRange: "1-3",
+      hyperlink: true,
+      beginDirty: true,
+    }),
   ];
 
-  for (const project of projects) {
+  for (const [projectIndex, project] of projects.entries()) {
     children.push(
       new Paragraph({
         text: `專案：${project.title}`,
         heading: HeadingLevel.HEADING_1,
+        pageBreakBefore: true,
+        spacing: { before: projectIndex === 0 ? 200 : 120, after: 100 },
       }),
     );
 
@@ -273,7 +343,12 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
       .filter((group) => group.entries.length > 0);
 
     if (directEntries.length === 0 && chapterEntries.length === 0) {
-      children.push(new Paragraph("（此專案暫無史料）"));
+      children.push(
+        new Paragraph({
+          text: "（此專案暫無史料）",
+          indent: { left: DOCX_INDENT.chapter },
+        }),
+      );
       continue;
     }
 
@@ -282,12 +357,12 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
         new Paragraph({
           text: "未分章史料",
           heading: HeadingLevel.HEADING_2,
+          indent: { left: DOCX_INDENT.chapter },
         }),
       );
       for (const entry of directEntries) {
         appendEntryParagraphs(children, order, entry);
         order += 1;
-        children.push(new Paragraph(""));
       }
     }
 
@@ -296,18 +371,21 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
         new Paragraph({
           text: `章節：${group.chapter.title}`,
           heading: HeadingLevel.HEADING_2,
+          indent: { left: DOCX_INDENT.chapter },
         }),
       );
 
       for (const entry of group.entries) {
         appendEntryParagraphs(children, order, entry);
         order += 1;
-        children.push(new Paragraph(""));
       }
     }
   }
 
   const doc = new Document({
+    features: {
+      updateFields: true,
+    },
     sections: [
       {
         properties: {},
