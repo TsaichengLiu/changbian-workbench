@@ -772,6 +772,11 @@ h3 {
   padding-right: 2px;
 }
 
+.advanced-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .modal-label {
   display: flex;
   flex-direction: column;

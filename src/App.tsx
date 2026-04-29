@@ -3482,273 +3482,275 @@ function App() {
               <p className="meta-text">以關鍵字、標籤、引文檢索，並將結果匯入至專案或章節。</p>
             </div>
 
-            <div className="advanced-filter-grid">
-              <label className="modal-label">
-                關鍵字
-                <input
-                  value={advancedModal.query}
-                  onChange={(event) =>
-                    setAdvancedModal((state) => ({ ...state, query: event.target.value }))
-                  }
-                  placeholder="檢索時間、摘要、史料文本、備註、引文註釋..."
-                />
-              </label>
+            <div className="modal-grid advanced-modal-body">
+              <div className="advanced-filter-grid">
+                <label className="modal-label">
+                  關鍵字
+                  <input
+                    value={advancedModal.query}
+                    onChange={(event) =>
+                      setAdvancedModal((state) => ({ ...state, query: event.target.value }))
+                    }
+                    placeholder="檢索時間、摘要、史料文本、備註、引文註釋..."
+                  />
+                </label>
 
-              <label className="modal-label">
-                標籤（可選）
-                <input
-                  list="advanced-tag-list"
-                  value={advancedModal.tag}
-                  onChange={(event) =>
-                    setAdvancedModal((state) => ({ ...state, tag: event.target.value }))
-                  }
-                  placeholder="如：#人物、#政治"
-                />
-                <datalist id="advanced-tag-list">
-                  {allTags.map((tag) => (
-                    <option key={`advanced-${tag}`} value={tag} />
-                  ))}
-                </datalist>
-              </label>
+                <label className="modal-label">
+                  標籤（可選）
+                  <input
+                    list="advanced-tag-list"
+                    value={advancedModal.tag}
+                    onChange={(event) =>
+                      setAdvancedModal((state) => ({ ...state, tag: event.target.value }))
+                    }
+                    placeholder="如：#人物、#政治"
+                  />
+                  <datalist id="advanced-tag-list">
+                    {allTags.map((tag) => (
+                      <option key={`advanced-${tag}`} value={tag} />
+                    ))}
+                  </datalist>
+                </label>
 
-              <label className="modal-label">
-                引文《》書名（可選）
-                <input
-                  value={advancedModal.citationTitle}
-                  onChange={(event) =>
-                    setAdvancedModal((state) => ({ ...state, citationTitle: event.target.value }))
-                  }
-                  placeholder="如：明史 / 資治通鑑"
-                />
-              </label>
-            </div>
-
-            <section className="advanced-scope-panel">
-              <div className="advanced-scope-head">
-                <p className="eyebrow">關鍵字檢索範圍</p>
-                <p className="meta-text">可勾選一個或多個欄位</p>
+                <label className="modal-label">
+                  引文《》書名（可選）
+                  <input
+                    value={advancedModal.citationTitle}
+                    onChange={(event) =>
+                      setAdvancedModal((state) => ({ ...state, citationTitle: event.target.value }))
+                    }
+                    placeholder="如：明史 / 資治通鑑"
+                  />
+                </label>
               </div>
-              <div className="advanced-scope-grid">
-                {ADVANCED_QUERY_SCOPE_OPTIONS.map((option) => {
-                  const checked = advancedModal.queryScopes.includes(option.value);
-                  return (
-                    <label
-                      key={`advanced-scope-${option.value}`}
-                      className={`advanced-scope-item ${checked ? "checked" : ""}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(event) => {
-                          setAdvancedModal((state) => {
-                            const next = event.target.checked
-                              ? Array.from(new Set([...state.queryScopes, option.value]))
-                              : state.queryScopes.filter((scope) => scope !== option.value);
-                            return { ...state, queryScopes: next };
-                          });
-                        }}
-                      />
-                      <span>{option.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </section>
 
-            <div className="advanced-results-head">
-              <p className="result-meta">
-                {hasAdvancedSearch
-                  ? `共 ${advancedResults.length} 條結果`
-                  : "請至少輸入一個檢索條件。"}
-              </p>
-              <button
-                className="ghost-btn"
-                onClick={() =>
-                  setAdvancedModal((state) => ({
-                    ...state,
-                    query: "",
-                    queryScopes: DEFAULT_ADVANCED_QUERY_SCOPES,
-                    tag: "",
-                    citationTitle: "",
-                  }))
-                }
-              >
-                清空條件
-              </button>
-            </div>
-
-            <div className="advanced-results">
-              {hasAdvancedSearch ? (
-                advancedModal.query.trim() && !hasAdvancedQueryScope ? (
-                  <p className="empty-inline">請至少勾選一個關鍵字檢索欄位。</p>
-                ) : advancedResults.length === 0 ? (
-                  <p className="empty-inline">未檢索到符合內容。</p>
-                ) : (
-                  advancedResults.map((result) => {
-                    const entry = workspace.entries[result.entryId];
+              <section className="advanced-scope-panel">
+                <div className="advanced-scope-head">
+                  <p className="eyebrow">關鍵字檢索範圍</p>
+                  <p className="meta-text">可勾選一個或多個欄位</p>
+                </div>
+                <div className="advanced-scope-grid">
+                  {ADVANCED_QUERY_SCOPE_OPTIONS.map((option) => {
+                    const checked = advancedModal.queryScopes.includes(option.value);
                     return (
-                      <button
-                        key={`advanced-${result.entryId}`}
-                        className="advanced-result"
-                        onClick={() => jumpToSearchResult(result)}
-                        onDoubleClick={() => {
-                          jumpToSearchResult(result);
-                          beginViewEntry(result.entryId);
-                        }}
+                      <label
+                        key={`advanced-scope-${option.value}`}
+                        className={`advanced-scope-item ${checked ? "checked" : ""}`}
                       >
-                        <div className="search-path">
-                          {result.projectTitle} / {result.chapterTitle}
-                        </div>
-                        <div className="search-time">
-                          {formatEntryHeadline(result.timeText, result.summaryText)}
-                        </div>
-                        {entry?.sourceText.trim() ? (
-                          <div
-                            className="advanced-source rich-markup"
-                            dangerouslySetInnerHTML={{ __html: renderLightMarkup(entry.sourceText.trim()) }}
-                          />
-                        ) : (
-                          <div className="advanced-source">（尚未輸入史料文本）</div>
-                        )}
-                        <div className="search-citation">
-                          {entry?.citation.trim() || "（尚未輸入引文註釋）"}
-                        </div>
-                        {result.tags.length > 0 && (
-                          <div className="tag-row">
-                            {result.tags.map((tag) => (
-                              <span key={`${result.entryId}-advanced-${tag}`} className="tag-chip">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </button>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            setAdvancedModal((state) => {
+                              const next = event.target.checked
+                                ? Array.from(new Set([...state.queryScopes, option.value]))
+                                : state.queryScopes.filter((scope) => scope !== option.value);
+                              return { ...state, queryScopes: next };
+                            });
+                          }}
+                        />
+                        <span>{option.label}</span>
+                      </label>
                     );
-                  })
-                )
-              ) : (
-                <p className="empty-inline">輸入檢索條件後，結果會顯示在這裡。</p>
-              )}
-            </div>
+                  })}
+                </div>
+              </section>
 
-            <section className="advanced-destination">
-              <p className="eyebrow">結果匯入</p>
-              <div className="advanced-mode-grid">
+              <div className="advanced-results-head">
+                <p className="result-meta">
+                  {hasAdvancedSearch
+                    ? `共 ${advancedResults.length} 條結果`
+                    : "請至少輸入一個檢索條件。"}
+                </p>
                 <button
-                  className={advancedModal.targetMode === "new-project" ? "scope active" : "scope"}
-                  onClick={() => setAdvancedModal((state) => ({ ...state, targetMode: "new-project" }))}
-                >
-                  新專案
-                </button>
-                <button
-                  className={advancedModal.targetMode === "new-chapter" ? "scope active" : "scope"}
-                  onClick={() => setAdvancedModal((state) => ({ ...state, targetMode: "new-chapter" }))}
-                >
-                  新章節
-                </button>
-                <button
-                  className={advancedModal.targetMode === "existing-project" ? "scope active" : "scope"}
-                  onClick={() => setAdvancedModal((state) => ({ ...state, targetMode: "existing-project" }))}
-                >
-                  現有專案
-                </button>
-                <button
-                  className={advancedModal.targetMode === "existing-chapter" ? "scope active" : "scope"}
+                  className="ghost-btn"
                   onClick={() =>
                     setAdvancedModal((state) => ({
                       ...state,
-                      targetMode: "existing-chapter",
-                      existingChapterId:
-                        state.existingChapterId &&
-                        workspace.chapters[state.existingChapterId]?.projectId === state.existingProjectId
-                          ? state.existingChapterId
-                          : workspace.projects[state.existingProjectId]?.chapterIds[0] ?? "",
-                      }))
+                      query: "",
+                      queryScopes: DEFAULT_ADVANCED_QUERY_SCOPES,
+                      tag: "",
+                      citationTitle: "",
+                    }))
                   }
                 >
-                  現有章節
+                  清空條件
                 </button>
               </div>
 
-              {advancedModal.targetMode === "new-project" && (
-                <label className="modal-label">
-                  新專案名稱
-                  <input
-                    value={advancedModal.newProjectTitle}
-                    onChange={(event) =>
-                      setAdvancedModal((state) => ({ ...state, newProjectTitle: event.target.value }))
-                    }
-                  />
-                </label>
-              )}
+              <div className="advanced-results">
+                {hasAdvancedSearch ? (
+                  advancedModal.query.trim() && !hasAdvancedQueryScope ? (
+                    <p className="empty-inline">請至少勾選一個關鍵字檢索欄位。</p>
+                  ) : advancedResults.length === 0 ? (
+                    <p className="empty-inline">未檢索到符合內容。</p>
+                  ) : (
+                    advancedResults.map((result) => {
+                      const entry = workspace.entries[result.entryId];
+                      return (
+                        <button
+                          key={`advanced-${result.entryId}`}
+                          className="advanced-result"
+                          onClick={() => jumpToSearchResult(result)}
+                          onDoubleClick={() => {
+                            jumpToSearchResult(result);
+                            beginViewEntry(result.entryId);
+                          }}
+                        >
+                          <div className="search-path">
+                            {result.projectTitle} / {result.chapterTitle}
+                          </div>
+                          <div className="search-time">
+                            {formatEntryHeadline(result.timeText, result.summaryText)}
+                          </div>
+                          {entry?.sourceText.trim() ? (
+                            <div
+                              className="advanced-source rich-markup"
+                              dangerouslySetInnerHTML={{ __html: renderLightMarkup(entry.sourceText.trim()) }}
+                            />
+                          ) : (
+                            <div className="advanced-source">（尚未輸入史料文本）</div>
+                          )}
+                          <div className="search-citation">
+                            {entry?.citation.trim() || "（尚未輸入引文註釋）"}
+                          </div>
+                          {result.tags.length > 0 && (
+                            <div className="tag-row">
+                              {result.tags.map((tag) => (
+                                <span key={`${result.entryId}-advanced-${tag}`} className="tag-chip">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })
+                  )
+                ) : (
+                  <p className="empty-inline">輸入檢索條件後，結果會顯示在這裡。</p>
+                )}
+              </div>
 
-              {advancedModal.targetMode !== "new-project" && (
-                <label className="modal-label">
-                  目標專案
-                  <select
-                    value={advancedModal.existingProjectId}
-                    onChange={(event) => {
-                      const projectId = event.target.value;
+              <section className="advanced-destination">
+                <p className="eyebrow">結果匯入</p>
+                <div className="advanced-mode-grid">
+                  <button
+                    className={advancedModal.targetMode === "new-project" ? "scope active" : "scope"}
+                    onClick={() => setAdvancedModal((state) => ({ ...state, targetMode: "new-project" }))}
+                  >
+                    新專案
+                  </button>
+                  <button
+                    className={advancedModal.targetMode === "new-chapter" ? "scope active" : "scope"}
+                    onClick={() => setAdvancedModal((state) => ({ ...state, targetMode: "new-chapter" }))}
+                  >
+                    新章節
+                  </button>
+                  <button
+                    className={advancedModal.targetMode === "existing-project" ? "scope active" : "scope"}
+                    onClick={() => setAdvancedModal((state) => ({ ...state, targetMode: "existing-project" }))}
+                  >
+                    現有專案
+                  </button>
+                  <button
+                    className={advancedModal.targetMode === "existing-chapter" ? "scope active" : "scope"}
+                    onClick={() =>
                       setAdvancedModal((state) => ({
                         ...state,
-                        existingProjectId: projectId,
-                        existingChapterId: workspace.projects[projectId]?.chapterIds[0] ?? "",
-                      }));
-                    }}
-                  >
-                    <option value="">請選擇專案</option>
-                    {workspace.projectOrder.map((projectId) => {
-                      const project = workspace.projects[projectId];
-                      if (!project) {
-                        return null;
-                      }
-                      return (
-                        <option key={`advanced-project-${projectId}`} value={projectId}>
-                          {project.title}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
-              )}
-
-              {advancedModal.targetMode === "new-chapter" && (
-                <label className="modal-label">
-                  新章節名稱
-                  <input
-                    value={advancedModal.newChapterTitle}
-                    onChange={(event) =>
-                      setAdvancedModal((state) => ({ ...state, newChapterTitle: event.target.value }))
-                    }
-                  />
-                </label>
-              )}
-
-              {advancedModal.targetMode === "existing-chapter" && (
-                <label className="modal-label">
-                  目標章節
-                  <select
-                    value={advancedModal.existingChapterId}
-                    onChange={(event) =>
-                      setAdvancedModal((state) => ({ ...state, existingChapterId: event.target.value }))
+                        targetMode: "existing-chapter",
+                        existingChapterId:
+                          state.existingChapterId &&
+                          workspace.chapters[state.existingChapterId]?.projectId === state.existingProjectId
+                            ? state.existingChapterId
+                            : workspace.projects[state.existingProjectId]?.chapterIds[0] ?? "",
+                        }))
                     }
                   >
-                    <option value="">請選擇章節</option>
-                    {(workspace.projects[advancedModal.existingProjectId]?.chapterIds ?? []).map((chapterId) => {
-                      const chapter = workspace.chapters[chapterId];
-                      if (!chapter) {
-                        return null;
+                    現有章節
+                  </button>
+                </div>
+
+                {advancedModal.targetMode === "new-project" && (
+                  <label className="modal-label">
+                    新專案名稱
+                    <input
+                      value={advancedModal.newProjectTitle}
+                      onChange={(event) =>
+                        setAdvancedModal((state) => ({ ...state, newProjectTitle: event.target.value }))
                       }
-                      return (
-                        <option key={`advanced-chapter-${chapterId}`} value={chapterId}>
-                          {chapter.title}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
-              )}
-            </section>
+                    />
+                  </label>
+                )}
+
+                {advancedModal.targetMode !== "new-project" && (
+                  <label className="modal-label">
+                    目標專案
+                    <select
+                      value={advancedModal.existingProjectId}
+                      onChange={(event) => {
+                        const projectId = event.target.value;
+                        setAdvancedModal((state) => ({
+                          ...state,
+                          existingProjectId: projectId,
+                          existingChapterId: workspace.projects[projectId]?.chapterIds[0] ?? "",
+                        }));
+                      }}
+                    >
+                      <option value="">請選擇專案</option>
+                      {workspace.projectOrder.map((projectId) => {
+                        const project = workspace.projects[projectId];
+                        if (!project) {
+                          return null;
+                        }
+                        return (
+                          <option key={`advanced-project-${projectId}`} value={projectId}>
+                            {project.title}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+                )}
+
+                {advancedModal.targetMode === "new-chapter" && (
+                  <label className="modal-label">
+                    新章節名稱
+                    <input
+                      value={advancedModal.newChapterTitle}
+                      onChange={(event) =>
+                        setAdvancedModal((state) => ({ ...state, newChapterTitle: event.target.value }))
+                      }
+                    />
+                  </label>
+                )}
+
+                {advancedModal.targetMode === "existing-chapter" && (
+                  <label className="modal-label">
+                    目標章節
+                    <select
+                      value={advancedModal.existingChapterId}
+                      onChange={(event) =>
+                        setAdvancedModal((state) => ({ ...state, existingChapterId: event.target.value }))
+                      }
+                    >
+                      <option value="">請選擇章節</option>
+                      {(workspace.projects[advancedModal.existingProjectId]?.chapterIds ?? []).map((chapterId) => {
+                        const chapter = workspace.chapters[chapterId];
+                        if (!chapter) {
+                          return null;
+                        }
+                        return (
+                          <option key={`advanced-chapter-${chapterId}`} value={chapterId}>
+                            {chapter.title}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+                )}
+              </section>
+            </div>
 
             <div className="modal-actions">
               <button className="ghost-btn" onClick={() => setAdvancedModal((state) => ({ ...state, open: false }))}>
