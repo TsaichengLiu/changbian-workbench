@@ -2,6 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const { app, BrowserWindow, Menu, dialog, ipcMain } = require("electron");
+const { SearchIndexService } = require("./search-index.cjs");
 
 const isDev = !app.isPackaged;
 const DEFAULT_SHARED_WORKSPACE_FILE = path.join(os.homedir(), ".changbian-workbench", "workspace.json");
@@ -80,6 +81,9 @@ function resolveSharedWorkspaceFile() {
 
 let sharedWorkspaceFile = resolveSharedWorkspaceFile();
 let currentAppearance = loadAppearanceFromSettings();
+const searchIndexService = new SearchIndexService({
+  getWorkspaceFilePath: () => sharedWorkspaceFile,
+});
 
 function broadcastAppearance() {
   const payload = { ...currentAppearance };
@@ -136,6 +140,9 @@ function saveSharedWorkspace(workspace) {
   try {
     fs.mkdirSync(path.dirname(sharedWorkspaceFile), { recursive: true });
     fs.writeFileSync(sharedWorkspaceFile, JSON.stringify(workspace, null, 2), "utf8");
+    if (workspace && typeof workspace === "object") {
+      searchIndexService.scheduleRebuild(workspace);
+    }
     return true;
   } catch {
     return false;
@@ -163,6 +170,7 @@ function setSharedWorkspacePath(nextPath, workspace) {
   }
 
   sharedWorkspaceFile = normalizedPath;
+  searchIndexService.close();
   if (workspace && typeof workspace === "object") {
     const saved = saveSharedWorkspace(workspace);
     if (!saved) {
@@ -188,6 +196,7 @@ function resetSharedWorkspacePath(workspace) {
   }
 
   sharedWorkspaceFile = DEFAULT_SHARED_WORKSPACE_FILE;
+  searchIndexService.close();
   if (workspace && typeof workspace === "object") {
     const saved = saveSharedWorkspace(workspace);
     if (!saved) {
@@ -270,6 +279,8 @@ ipcMain.handle("appearance:set", (_event, nextAppearance) => {
   const { appearance } = applyAppearance(nextAppearance, "renderer");
   return { ...appearance };
 });
+ipcMain.handle("search:query", (_event, criteria) => searchIndexService.search(criteria));
+ipcMain.handle("search:status", () => searchIndexService.getStatus());
 ipcMain.handle("workspace:pick-shared-path", async () => {
   const focused = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || undefined;
   const result = await dialog.showSaveDialog(focused, {
@@ -316,6 +327,10 @@ function createWindow() {
 
 app.whenReady().then(() => {
   setApplicationMenu();
+  const workspace = loadSharedWorkspace();
+  if (workspace && typeof workspace === "object") {
+    searchIndexService.scheduleRebuild(workspace);
+  }
   createWindow();
 
   app.on("activate", () => {
@@ -329,4 +344,8 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  searchIndexService.close();
 });

@@ -22,7 +22,7 @@
   - Word: `docx`
   - Excel: `xlsx`
 - 繁簡檢索：`opencc-js`
-- 本地資料儲存：`localStorage`
+- 本地資料儲存：`workspace.json`（主資料）+ `SQLite FTS5`（全文索引）
 
 ## 開發與啟動
 
@@ -46,6 +46,7 @@ npm run dist:mac
 - `dist/`：前端構建輸出（build 後）
 - `release/`：桌面安裝包輸出（dist:mac 後）
 - `mcp/server.cjs`：可獨立啟動的 MCP server（stdio）
+- `electron/search-index.cjs`：本地 SQLite FTS5 索引與查詢服務
 
 ## MCP Server（給 agent / LLM 接入）
 
@@ -54,6 +55,7 @@ npm run mcp:start
 ```
 
 - 默認資料檔：`~/.changbian-workbench/workspace.json`
+- 索引檔：與資料檔同目錄、同檔名基底，副檔名為 `.fts5.sqlite`
 - 可用環境變數覆蓋：`CHANGBIAN_MCP_STORE=/your/path/workspace.json`
 - Electron 桌面版會同步同一份共享檔（啟動時讀取、編輯時寫回）
 

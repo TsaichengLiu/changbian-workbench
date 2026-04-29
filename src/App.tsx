@@ -3,13 +3,22 @@ import {
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import { ExportScope, exportAsDocx, exportAsTxt, exportAsXlsx } from "./exporters";
 import { buildVariants, matchesTraditionalSimplified } from "./search";
+import {
+  buildSearchIndex,
+  type IndexedEntry,
+  type SearchCriteria,
+  type SearchResult,
+  searchInIndex,
+} from "./search-engine";
 import type { Entry, WorkspaceData } from "./types";
 import { createId, reorderById, summarize } from "./utils";
 
@@ -187,19 +196,6 @@ type DragPayload =
   | { type: "project"; id: string }
   | { type: "chapter"; id: string; projectId: string }
   | { type: "entry"; id: string; projectId: string; chapterId: string | null };
-
-interface SearchResult {
-  projectId: string;
-  chapterId: string | null;
-  entryId: string;
-  projectTitle: string;
-  chapterTitle: string;
-  timeText: string;
-  summaryText: string;
-  snippet: string;
-  citation: string;
-  tags: string[];
-}
 
 interface EntryDraft {
   timeText: string;
@@ -1069,6 +1065,39 @@ function filterEntriesByCriteria(workspace: WorkspaceData, criteria: EntryFilter
   });
 }
 
+const SEARCH_DEBOUNCE_MS = 160;
+const SEARCH_RESULT_BATCH = 120;
+
+type SearchWorkerChannel = "global" | "advanced";
+
+type SearchWorkerRequest =
+  | { type: "index"; payload: IndexedEntry[] }
+  | {
+      type: "search";
+      payload: { requestId: number; channel: SearchWorkerChannel; criteria: SearchCriteria };
+    };
+
+type SearchWorkerResponse =
+  | {
+      type: "result";
+      payload: { requestId: number; channel: SearchWorkerChannel; results: SearchResult[] };
+    }
+  | {
+      type: "error";
+      payload: { requestId: number; channel: SearchWorkerChannel; message: string };
+    };
+
+function useDebouncedValue<T>(value: T, delay = SEARCH_DEBOUNCE_MS): T {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [delay, value]);
+
+  return debounced;
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceData>(() => loadWorkspace());
   const [appearance, setAppearance] = useState<AppearanceState>(() => loadAppearance());
@@ -1077,6 +1106,10 @@ function App() {
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
   const [globalQuery, setGlobalQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string>("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [advancedResults, setAdvancedResults] = useState<SearchResult[]>([]);
+  const [searchRenderLimit, setSearchRenderLimit] = useState(SEARCH_RESULT_BATCH);
+  const [advancedRenderLimit, setAdvancedRenderLimit] = useState(SEARCH_RESULT_BATCH);
   const [entryHighlightContext, setEntryHighlightContext] = useState<{
     entryId: string;
     query: string;
@@ -1118,12 +1151,18 @@ function App() {
     targetProjectId: workspace.activeProjectId ?? workspace.projectOrder[0] ?? "",
     newChapterTitle: "合併章節",
   });
+  const [isSearchPending, startSearchTransition] = useTransition();
 
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const entrySourceTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const leftPaneScrollRef = useRef<HTMLDivElement | null>(null);
   const centerPaneScrollRef = useRef<HTMLElement | null>(null);
   const rightPaneScrollRef = useRef<HTMLElement | null>(null);
+  const searchResultsRef = useRef<HTMLDivElement | null>(null);
+  const advancedResultsRef = useRef<HTMLDivElement | null>(null);
+  const searchWorkerRef = useRef<Worker | null>(null);
+  const globalSearchRequestRef = useRef(0);
+  const advancedSearchRequestRef = useRef(0);
 
   const activeProject = workspace.activeProjectId
     ? workspace.projects[workspace.activeProjectId] ?? null
@@ -1264,7 +1303,22 @@ function App() {
     };
   }, []);
 
-  const hasSearch = Boolean(globalQuery.trim() || normalizeTagInput(selectedTag));
+  const searchIndex = useMemo(() => buildSearchIndex(workspace), [workspace]);
+
+  const debouncedGlobalQuery = useDebouncedValue(globalQuery);
+  const debouncedSelectedTag = useDebouncedValue(selectedTag);
+  const debouncedAdvancedQuery = useDebouncedValue(advancedModal.query);
+  const debouncedAdvancedTag = useDebouncedValue(advancedModal.tag);
+  const debouncedAdvancedCitationTitle = useDebouncedValue(advancedModal.citationTitle);
+
+  const deferredGlobalQuery = useDeferredValue(debouncedGlobalQuery);
+  const deferredSelectedTag = useDeferredValue(debouncedSelectedTag);
+  const deferredAdvancedQuery = useDeferredValue(debouncedAdvancedQuery);
+  const deferredAdvancedTag = useDeferredValue(debouncedAdvancedTag);
+  const deferredAdvancedCitationTitle = useDeferredValue(debouncedAdvancedCitationTitle);
+  const deferredAdvancedQueryScopes = useDeferredValue(advancedModal.queryScopes);
+
+  const hasSearch = Boolean(deferredGlobalQuery.trim() || normalizeTagInput(deferredSelectedTag));
   const searchHighlightQuery = globalQuery.trim() || normalizeTagInput(selectedTag);
   const advancedHighlightQuery =
     advancedModal.query.trim() ||
@@ -1274,30 +1328,225 @@ function App() {
     ? advancedHighlightQuery
     : searchHighlightQuery;
 
-  const searchResults = useMemo(() => {
-    return filterEntriesByCriteria(workspace, {
-      query: globalQuery,
-      tag: selectedTag,
-      citationTitle: "",
-    });
-  }, [globalQuery, selectedTag, workspace]);
-
   const hasAdvancedSearch = Boolean(
-    advancedModal.query.trim() ||
-      normalizeTagInput(advancedModal.tag) ||
-      advancedModal.citationTitle.trim(),
+    deferredAdvancedQuery.trim() ||
+      normalizeTagInput(deferredAdvancedTag) ||
+      deferredAdvancedCitationTitle.trim(),
   );
-  const hasAdvancedQueryScope = advancedModal.queryScopes.length > 0;
-  const advancedResults = useMemo(
-    () =>
-      filterEntriesByCriteria(workspace, {
-        query: advancedModal.query,
-        queryScopes: advancedModal.queryScopes,
-        tag: advancedModal.tag,
-        citationTitle: advancedModal.citationTitle,
-      }),
-    [advancedModal.citationTitle, advancedModal.query, advancedModal.queryScopes, advancedModal.tag, workspace],
+  const hasAdvancedQueryScope = deferredAdvancedQueryScopes.length > 0;
+  const visibleSearchResults = useMemo(
+    () => searchResults.slice(0, Math.max(searchRenderLimit, SEARCH_RESULT_BATCH)),
+    [searchRenderLimit, searchResults],
   );
+  const visibleAdvancedResults = useMemo(
+    () => advancedResults.slice(0, Math.max(advancedRenderLimit, SEARCH_RESULT_BATCH)),
+    [advancedRenderLimit, advancedResults],
+  );
+
+  function loadMoreSearchResults(): void {
+    setSearchRenderLimit((current) => {
+      if (current >= searchResults.length) {
+        return current;
+      }
+      return Math.min(searchResults.length, current + SEARCH_RESULT_BATCH);
+    });
+  }
+
+  function loadMoreAdvancedResults(): void {
+    setAdvancedRenderLimit((current) => {
+      if (current >= advancedResults.length) {
+        return current;
+      }
+      return Math.min(advancedResults.length, current + SEARCH_RESULT_BATCH);
+    });
+  }
+
+  async function queryBySqlite(criteria: SearchCriteria): Promise<SearchResult[] | null> {
+    if (!window.searchBridge?.query) {
+      return null;
+    }
+    try {
+      return await window.searchBridge.query({
+        ...criteria,
+        limit: 2000,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      searchWorkerRef.current = null;
+      return;
+    }
+
+    const worker = new Worker(new URL("./search-worker.ts", import.meta.url), { type: "module" });
+    searchWorkerRef.current = worker;
+
+    const handleMessage = (event: MessageEvent<SearchWorkerResponse>) => {
+      const message = event.data;
+      if (!message) {
+        return;
+      }
+
+      if (message.type === "result") {
+        const { channel, requestId, results } = message.payload;
+        if (channel === "global") {
+          if (requestId !== globalSearchRequestRef.current) {
+            return;
+          }
+          startSearchTransition(() => setSearchResults(results));
+        } else {
+          if (requestId !== advancedSearchRequestRef.current) {
+            return;
+          }
+          startSearchTransition(() => setAdvancedResults(results));
+        }
+        return;
+      }
+
+      const { channel, requestId } = message.payload;
+      if (channel === "global" && requestId === globalSearchRequestRef.current) {
+        startSearchTransition(() => setSearchResults([]));
+      } else if (channel === "advanced" && requestId === advancedSearchRequestRef.current) {
+        startSearchTransition(() => setAdvancedResults([]));
+      }
+    };
+
+    worker.addEventListener("message", handleMessage);
+    return () => {
+      worker.removeEventListener("message", handleMessage);
+      worker.terminate();
+      searchWorkerRef.current = null;
+    };
+  }, [startSearchTransition]);
+
+  useEffect(() => {
+    const worker = searchWorkerRef.current;
+    if (!worker) {
+      return;
+    }
+    const request: SearchWorkerRequest = { type: "index", payload: searchIndex };
+    worker.postMessage(request);
+  }, [searchIndex]);
+
+  useEffect(() => {
+    setSearchRenderLimit(SEARCH_RESULT_BATCH);
+
+    const criteria: SearchCriteria = {
+      query: deferredGlobalQuery,
+      tag: deferredSelectedTag,
+      citationTitle: "",
+    };
+
+    if (!criteria.query.trim() && !normalizeTagInput(criteria.tag)) {
+      startSearchTransition(() => setSearchResults([]));
+      return;
+    }
+
+    const requestId = globalSearchRequestRef.current + 1;
+    globalSearchRequestRef.current = requestId;
+    let cancelled = false;
+
+    async function runSearch(): Promise<void> {
+      const sqliteResults = await queryBySqlite(criteria);
+      if (cancelled || requestId !== globalSearchRequestRef.current) {
+        return;
+      }
+      if (sqliteResults) {
+        startSearchTransition(() => setSearchResults(sqliteResults));
+        return;
+      }
+
+      const worker = searchWorkerRef.current;
+      if (worker) {
+        const request: SearchWorkerRequest = {
+          type: "search",
+          payload: {
+            requestId,
+            channel: "global",
+            criteria,
+          },
+        };
+        worker.postMessage(request);
+        return;
+      }
+
+      const next = searchInIndex(searchIndex, criteria);
+      startSearchTransition(() => setSearchResults(next));
+    }
+
+    void runSearch();
+    return () => {
+      cancelled = true;
+    };
+  }, [deferredGlobalQuery, deferredSelectedTag, searchIndex, startSearchTransition]);
+
+  useEffect(() => {
+    setAdvancedRenderLimit(SEARCH_RESULT_BATCH);
+
+    const criteria: SearchCriteria = {
+      query: deferredAdvancedQuery,
+      queryScopes: deferredAdvancedQueryScopes,
+      tag: deferredAdvancedTag,
+      citationTitle: deferredAdvancedCitationTitle,
+    };
+
+    if (!criteria.query.trim() && !normalizeTagInput(criteria.tag) && !criteria.citationTitle.trim()) {
+      startSearchTransition(() => setAdvancedResults([]));
+      return;
+    }
+
+    if (criteria.query.trim() && (!criteria.queryScopes || criteria.queryScopes.length === 0)) {
+      startSearchTransition(() => setAdvancedResults([]));
+      return;
+    }
+
+    const requestId = advancedSearchRequestRef.current + 1;
+    advancedSearchRequestRef.current = requestId;
+    let cancelled = false;
+
+    async function runSearch(): Promise<void> {
+      const sqliteResults = await queryBySqlite(criteria);
+      if (cancelled || requestId !== advancedSearchRequestRef.current) {
+        return;
+      }
+      if (sqliteResults) {
+        startSearchTransition(() => setAdvancedResults(sqliteResults));
+        return;
+      }
+
+      const worker = searchWorkerRef.current;
+      if (worker) {
+        const request: SearchWorkerRequest = {
+          type: "search",
+          payload: {
+            requestId,
+            channel: "advanced",
+            criteria,
+          },
+        };
+        worker.postMessage(request);
+        return;
+      }
+
+      const next = searchInIndex(searchIndex, criteria);
+      startSearchTransition(() => setAdvancedResults(next));
+    }
+
+    void runSearch();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    deferredAdvancedCitationTitle,
+    deferredAdvancedQuery,
+    deferredAdvancedQueryScopes,
+    deferredAdvancedTag,
+    searchIndex,
+    startSearchTransition,
+  ]);
 
   useEffect(() => {
     if (!window.workspaceBridge) {
@@ -3178,15 +3427,25 @@ function App() {
               高級檢索
             </button>
 
-            <div className="search-results">
+            <div
+              ref={searchResultsRef}
+              className="search-results"
+              onScroll={(event) => {
+                const element = event.currentTarget;
+                if (element.scrollTop + element.clientHeight >= element.scrollHeight - 72) {
+                  loadMoreSearchResults();
+                }
+              }}
+            >
               <p className="result-meta">
                 {hasSearch ? `共 ${searchResults.length} 條結果` : "請輸入關鍵詞或選擇標籤開始檢索"}
               </p>
+              {isSearchPending && hasSearch && <p className="meta-text">檢索中...</p>}
               {hasSearch ? (
                 searchResults.length === 0 ? (
                   <p className="empty-inline">未檢索到符合內容。</p>
                 ) : (
-                  searchResults.map((result) => {
+                  visibleSearchResults.map((result) => {
                     const entry = workspace.entries[result.entryId];
                     const sourcePreview = summarizeAroundMatch(
                       entry?.sourceText ?? result.snippet,
@@ -3260,6 +3519,11 @@ function App() {
                 )
               ) : (
                 <p className="empty-inline">檢索後可點結果跳轉到對應史料。</p>
+              )}
+              {searchResults.length > visibleSearchResults.length && (
+                <button className="ghost-btn" onClick={loadMoreSearchResults}>
+                  載入更多（{visibleSearchResults.length}/{searchResults.length}）
+                </button>
               )}
             </div>
           </section>
@@ -3986,14 +4250,23 @@ function App() {
                 </button>
               </div>
 
-              <div className="advanced-results">
+              <div
+                ref={advancedResultsRef}
+                className="advanced-results"
+                onScroll={(event) => {
+                  const element = event.currentTarget;
+                  if (element.scrollTop + element.clientHeight >= element.scrollHeight - 72) {
+                    loadMoreAdvancedResults();
+                  }
+                }}
+              >
                 {hasAdvancedSearch ? (
-                  advancedModal.query.trim() && !hasAdvancedQueryScope ? (
+                  deferredAdvancedQuery.trim() && !hasAdvancedQueryScope ? (
                     <p className="empty-inline">請至少勾選一個關鍵字檢索欄位。</p>
                   ) : advancedResults.length === 0 ? (
                     <p className="empty-inline">未檢索到符合內容。</p>
                   ) : (
-                    advancedResults.map((result) => {
+                    visibleAdvancedResults.map((result) => {
                       const entry = workspace.entries[result.entryId];
                       return (
                         <button
@@ -4064,6 +4337,11 @@ function App() {
                   )
                 ) : (
                   <p className="empty-inline">輸入檢索條件後，結果會顯示在這裡。</p>
+                )}
+                {advancedResults.length > visibleAdvancedResults.length && (
+                  <button className="ghost-btn" onClick={loadMoreAdvancedResults}>
+                    載入更多（{visibleAdvancedResults.length}/{advancedResults.length}）
+                  </button>
                 )}
               </div>
 

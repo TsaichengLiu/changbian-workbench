@@ -45,8 +45,47 @@ interface AppearanceBridge {
   ) => () => void;
 }
 
+type SearchBridgeScope = "project" | "chapter" | "time" | "summary" | "source" | "note" | "citation";
+
+interface SearchBridgeCriteria {
+  query: string;
+  queryScopes?: SearchBridgeScope[];
+  tag: string;
+  citationTitle: string;
+  limit?: number;
+}
+
+interface SearchBridgeResult {
+  projectId: string;
+  chapterId: string | null;
+  entryId: string;
+  projectTitle: string;
+  chapterTitle: string;
+  timeText: string;
+  summaryText: string;
+  snippet: string;
+  citation: string;
+  tags: string[];
+}
+
+interface SearchBridgeStatus {
+  enabled: boolean;
+  ready: boolean;
+  dbPath: string;
+  rowCount: number;
+  lastIndexedAt: number;
+  message: string;
+  backend: string;
+}
+
+interface SearchBridge {
+  query: (criteria: SearchBridgeCriteria) => Promise<SearchBridgeResult[] | null>;
+  getStatus: () => Promise<SearchBridgeStatus>;
+}
+
 interface Window {
   desktopMeta?: DesktopMeta;
   workspaceBridge?: WorkspaceBridge;
   appearanceBridge?: AppearanceBridge;
+  searchBridge?: SearchBridge;
 }

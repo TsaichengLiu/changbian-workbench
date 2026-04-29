@@ -33,3 +33,8 @@ contextBridge.exposeInMainWorld("appearanceBridge", {
     };
   },
 });
+
+contextBridge.exposeInMainWorld("searchBridge", {
+  query: (criteria) => ipcRenderer.invoke("search:query", criteria),
+  getStatus: () => ipcRenderer.invoke("search:status"),
+});
