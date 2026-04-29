@@ -222,8 +222,8 @@ interface ChapterSnapshot {
 
 type ClipboardState =
   | { kind: "project"; snapshot: ProjectSnapshot }
-  | { kind: "chapter"; snapshot: ChapterSnapshot }
-  | { kind: "entry"; draft: EntryDraft }
+  | { kind: "chapter"; snapshots: ChapterSnapshot[] }
+  | { kind: "entry"; drafts: EntryDraft[] }
   | null;
 
 type ModalState =
@@ -456,6 +456,17 @@ function resolveInsertAfterEntryId(
     return null;
   }
   return selectedEntryId;
+}
+
+function buildIdRange(orderedIds: string[], anchorId: string, targetId: string): string[] {
+  const anchorIndex = orderedIds.indexOf(anchorId);
+  const targetIndex = orderedIds.indexOf(targetId);
+  if (anchorIndex < 0 || targetIndex < 0) {
+    return [targetId];
+  }
+  const start = Math.min(anchorIndex, targetIndex);
+  const end = Math.max(anchorIndex, targetIndex);
+  return orderedIds.slice(start, end + 1);
 }
 
 function appendEntryDraft(
@@ -1181,6 +1192,8 @@ function App() {
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
   const [globalQuery, setGlobalQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string>("");
+  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [advancedResults, setAdvancedResults] = useState<SearchResult[]>([]);
   const [entryListScrollTop, setEntryListScrollTop] = useState(0);
@@ -1239,6 +1252,8 @@ function App() {
   const searchWorkerRef = useRef<Worker | null>(null);
   const globalSearchRequestRef = useRef(0);
   const advancedSearchRequestRef = useRef(0);
+  const chapterSelectionAnchorRef = useRef<string | null>(null);
+  const entrySelectionAnchorRef = useRef<string | null>(null);
 
   const activeProject = workspace.activeProjectId
     ? workspace.projects[workspace.activeProjectId] ?? null
@@ -1257,6 +1272,26 @@ function App() {
   const selectedEntry = workspace.selectedEntryId
     ? workspace.entries[workspace.selectedEntryId] ?? null
     : null;
+  const selectedChapterIdSet = useMemo(() => new Set(selectedChapterIds), [selectedChapterIds]);
+  const selectedEntryIdSet = useMemo(() => new Set(selectedEntryIds), [selectedEntryIds]);
+  const chapterSelectionForMenu = useMemo(() => {
+    if (!contextMenu || contextMenu.kind !== "chapter") {
+      return [];
+    }
+    if (selectedChapterIdSet.has(contextMenu.chapterId)) {
+      return selectedChapterIds.filter((chapterId) => Boolean(workspace.chapters[chapterId]));
+    }
+    return workspace.chapters[contextMenu.chapterId] ? [contextMenu.chapterId] : [];
+  }, [contextMenu, selectedChapterIdSet, selectedChapterIds, workspace.chapters]);
+  const entrySelectionForMenu = useMemo(() => {
+    if (!contextMenu || contextMenu.kind !== "entry") {
+      return [];
+    }
+    if (selectedEntryIdSet.has(contextMenu.entryId)) {
+      return selectedEntryIds.filter((entryId) => Boolean(workspace.entries[entryId]));
+    }
+    return workspace.entries[contextMenu.entryId] ? [contextMenu.entryId] : [];
+  }, [contextMenu, selectedEntryIdSet, selectedEntryIds, workspace.entries]);
 
   const allTags = useMemo(() => {
     const seen = new Set<string>();
@@ -1281,6 +1316,17 @@ function App() {
       setSelectedTag("");
     }
   }, [selectedTag, allTags]);
+
+  useEffect(() => {
+    setSelectedChapterIds((previous) => {
+      const next = previous.filter((chapterId) => Boolean(workspace.chapters[chapterId]));
+      return next.length === previous.length && next.every((id, index) => id === previous[index]) ? previous : next;
+    });
+    setSelectedEntryIds((previous) => {
+      const next = previous.filter((entryId) => Boolean(workspace.entries[entryId]));
+      return next.length === previous.length && next.every((id, index) => id === previous[index]) ? previous : next;
+    });
+  }, [workspace.chapters, workspace.entries]);
 
   useEffect(() => {
     const fallbackProjectId = workspace.activeProjectId ?? workspace.projectOrder[0] ?? "";
@@ -1788,6 +1834,8 @@ function App() {
               }
             : previous,
         );
+        setSelectedEntryIds([]);
+        entrySelectionAnchorRef.current = null;
       }
       setContextMenu(null);
     }
@@ -1839,6 +1887,10 @@ function App() {
       const project = draft.projects[projectId];
       draft.selectedEntryId = project?.entryIds[0] ?? firstEntryInProject(draft, projectId);
     });
+    setSelectedChapterIds([]);
+    setSelectedEntryIds([]);
+    chapterSelectionAnchorRef.current = null;
+    entrySelectionAnchorRef.current = null;
   }
 
   function selectChapter(projectId: string, chapterId: string): void {
@@ -1848,6 +1900,57 @@ function App() {
       const chapter = draft.chapters[chapterId];
       draft.selectedEntryId = chapter?.entryIds[0] ?? null;
     });
+    setSelectedChapterIds([chapterId]);
+    setSelectedEntryIds([]);
+    chapterSelectionAnchorRef.current = chapterId;
+    entrySelectionAnchorRef.current = null;
+  }
+
+  function handleChapterClick(event: MouseEvent<HTMLButtonElement>, projectId: string, chapterId: string): void {
+    const chapterOrder = workspace.projects[projectId]?.chapterIds ?? [];
+    const previousAnchor = chapterSelectionAnchorRef.current;
+    const fallbackAnchor =
+      previousAnchor && chapterOrder.includes(previousAnchor)
+        ? previousAnchor
+        : activeChapter?.projectId === projectId && activeChapter.id
+          ? activeChapter.id
+          : chapterId;
+
+    mutateWorkspace((draft) => {
+      draft.activeProjectId = projectId;
+      draft.activeChapterId = chapterId;
+      const chapter = draft.chapters[chapterId];
+      draft.selectedEntryId = chapter?.entryIds[0] ?? null;
+    });
+    setSelectedEntryIds([]);
+    entrySelectionAnchorRef.current = null;
+
+    if (event.shiftKey) {
+      setSelectedChapterIds(buildIdRange(chapterOrder, fallbackAnchor, chapterId));
+    } else {
+      setSelectedChapterIds([chapterId]);
+      chapterSelectionAnchorRef.current = chapterId;
+    }
+  }
+
+  function handleEntryCardClick(event: MouseEvent<HTMLElement>, entryId: string): void {
+    const fallbackAnchor =
+      entrySelectionAnchorRef.current && currentEntryIds.includes(entrySelectionAnchorRef.current)
+        ? entrySelectionAnchorRef.current
+        : workspace.selectedEntryId && currentEntryIds.includes(workspace.selectedEntryId)
+          ? workspace.selectedEntryId
+          : entryId;
+
+    mutateWorkspace((draft) => {
+      draft.selectedEntryId = entryId;
+    });
+
+    if (event.shiftKey) {
+      setSelectedEntryIds(buildIdRange(currentEntryIds, fallbackAnchor, entryId));
+    } else {
+      setSelectedEntryIds([entryId]);
+      entrySelectionAnchorRef.current = entryId;
+    }
   }
 
   function jumpToSearchResult(result: SearchResult, highlightQuery = ""): void {
@@ -1957,12 +2060,43 @@ function App() {
     setClipboard({ kind: "project", snapshot });
   }
 
-  function copyChapterToClipboard(chapterId: string): void {
-    const snapshot = collectChapterSnapshot(workspace, chapterId);
-    if (!snapshot) {
+  function collectOrderedChapterIdsForContext(chapterId: string, chapterIds: string[]): string[] {
+    const chapter = workspace.chapters[chapterId];
+    if (!chapter) {
+      return [];
+    }
+    const project = workspace.projects[chapter.projectId];
+    if (!project) {
+      return [];
+    }
+    const chapterIdSet = new Set(chapterIds);
+    return project.chapterIds.filter((id) => chapterIdSet.has(id) && Boolean(workspace.chapters[id]));
+  }
+
+  function collectOrderedEntryIdsForContext(entryId: string, entryIds: string[]): string[] {
+    const entry = workspace.entries[entryId];
+    if (!entry) {
+      return [];
+    }
+    const scopeIds = entry.chapterId
+      ? workspace.chapters[entry.chapterId]?.entryIds ?? []
+      : workspace.projects[entry.projectId]?.entryIds ?? [];
+    const entryIdSet = new Set(entryIds);
+    return scopeIds.filter((id) => entryIdSet.has(id) && Boolean(workspace.entries[id]));
+  }
+
+  function copyChaptersToClipboard(chapterIds: string[]): void {
+    const snapshots = chapterIds
+      .map((chapterId) => collectChapterSnapshot(workspace, chapterId))
+      .filter((snapshot): snapshot is ChapterSnapshot => Boolean(snapshot));
+    if (snapshots.length === 0) {
       return;
     }
-    setClipboard({ kind: "chapter", snapshot });
+    setClipboard({ kind: "chapter", snapshots });
+  }
+
+  function copyChapterToClipboard(chapterId: string): void {
+    copyChaptersToClipboard([chapterId]);
   }
 
   function pasteProjectFromClipboard(insertAfterProjectId: string | null = null): void {
@@ -2019,11 +2153,18 @@ function App() {
     if (!clipboard || clipboard.kind !== "chapter") {
       return;
     }
+    if (clipboard.snapshots.length === 0) {
+      return;
+    }
 
     const resolvedProjectId =
       typeof targetProjectId === "string" ? targetProjectId : activeProject?.id ?? null;
+    const fallbackInsertAfterChapterId =
+      activeChapter?.id && workspace.chapters[activeChapter.id]?.projectId === resolvedProjectId
+        ? activeChapter.id
+        : null;
     const resolvedInsertAfterChapterId =
-      typeof insertAfterChapterId === "string" ? insertAfterChapterId : null;
+      typeof insertAfterChapterId === "string" ? insertAfterChapterId : fallbackInsertAfterChapterId;
     if (!resolvedProjectId) {
       return;
     }
@@ -2034,45 +2175,67 @@ function App() {
         return;
       }
 
-      const chapterId = createId("chapter");
-      draft.chapters[chapterId] = {
-        id: chapterId,
-        projectId: project.id,
-        title: ensureUniqueChapterTitle(draft, project.id, `${clipboard.snapshot.title}（副本）`),
-        entryIds: [],
-        createdAt: Date.now(),
-      };
-      if (resolvedInsertAfterChapterId && draft.chapters[resolvedInsertAfterChapterId]?.projectId === project.id) {
-        const index = project.chapterIds.indexOf(resolvedInsertAfterChapterId);
-        if (index >= 0) {
-          project.chapterIds.splice(index + 1, 0, chapterId);
+      let nextInsertAfterChapterId =
+        resolvedInsertAfterChapterId && draft.chapters[resolvedInsertAfterChapterId]?.projectId === project.id
+          ? resolvedInsertAfterChapterId
+          : null;
+      let firstChapterId: string | null = null;
+      let firstEntryId: string | null = null;
+      let lastChapterId: string | null = null;
+
+      for (const snapshot of clipboard.snapshots) {
+        const chapterId = createId("chapter");
+        draft.chapters[chapterId] = {
+          id: chapterId,
+          projectId: project.id,
+          title: ensureUniqueChapterTitle(draft, project.id, `${snapshot.title}（副本）`),
+          entryIds: [],
+          createdAt: Date.now(),
+        };
+        if (!firstChapterId) {
+          firstChapterId = chapterId;
+        }
+        lastChapterId = chapterId;
+
+        if (nextInsertAfterChapterId && draft.chapters[nextInsertAfterChapterId]?.projectId === project.id) {
+          const index = project.chapterIds.indexOf(nextInsertAfterChapterId);
+          if (index >= 0) {
+            project.chapterIds.splice(index + 1, 0, chapterId);
+          } else {
+            project.chapterIds.push(chapterId);
+          }
         } else {
           project.chapterIds.push(chapterId);
         }
-      } else {
-        project.chapterIds.push(chapterId);
-      }
+        nextInsertAfterChapterId = chapterId;
 
-      let firstEntryId: string | null = null;
-      for (const item of clipboard.snapshot.entries) {
-        const entryId = appendEntryDraft(draft, project.id, chapterId, item);
-        if (!firstEntryId) {
-          firstEntryId = entryId;
+        for (const item of snapshot.entries) {
+          const entryId = appendEntryDraft(draft, project.id, chapterId, item);
+          if (!firstEntryId) {
+            firstEntryId = entryId;
+          }
         }
       }
 
       draft.activeProjectId = project.id;
-      draft.activeChapterId = chapterId;
+      draft.activeChapterId = lastChapterId ?? firstChapterId;
       draft.selectedEntryId = firstEntryId;
     });
   }
 
-  function copyEntryToClipboard(entryId: string): void {
-    const entry = workspace.entries[entryId];
-    if (!entry) {
+  function copyEntriesToClipboard(entryIds: string[]): void {
+    const drafts = entryIds
+      .map((entryId) => workspace.entries[entryId])
+      .filter((entry): entry is Entry => Boolean(entry))
+      .map(entryToDraft);
+    if (drafts.length === 0) {
       return;
     }
-    setClipboard({ kind: "entry", draft: entryToDraft(entry) });
+    setClipboard({ kind: "entry", drafts });
+  }
+
+  function copyEntryToClipboard(entryId: string): void {
+    copyEntriesToClipboard([entryId]);
   }
 
   function pasteEntryFromClipboard(
@@ -2081,6 +2244,9 @@ function App() {
     insertAfterEntryId?: string | null,
   ): void {
     if (!clipboard || clipboard.kind !== "entry") {
+      return;
+    }
+    if (clipboard.drafts.length === 0) {
       return;
     }
 
@@ -2114,17 +2280,37 @@ function App() {
         scopedChapterId,
         normalizedInsertAfterEntryId ?? draft.selectedEntryId,
       );
-      const entryId = appendEntryDraft(
-        draft,
-        targetProject.id,
-        scopedChapterId,
-        clipboard.draft,
-        safeInsertAfterEntryId,
-      );
+      let insertAfterId = safeInsertAfterEntryId;
+      let lastEntryId: string | null = null;
+      for (const draftItem of clipboard.drafts) {
+        const entryId = appendEntryDraft(draft, targetProject.id, scopedChapterId, draftItem, insertAfterId);
+        insertAfterId = entryId;
+        lastEntryId = entryId;
+      }
       draft.activeProjectId = targetProject.id;
       draft.activeChapterId = scopedChapterId;
-      draft.selectedEntryId = entryId;
+      draft.selectedEntryId = lastEntryId;
     });
+  }
+
+  function pasteChapterFromToolbar(): void {
+    if (!activeProject) {
+      return;
+    }
+    const orderedSelectedChapterIds = activeProject.chapterIds.filter((chapterId) => selectedChapterIdSet.has(chapterId));
+    const insertAfterChapterId =
+      orderedSelectedChapterIds.length > 0 ? orderedSelectedChapterIds[orderedSelectedChapterIds.length - 1] : null;
+    pasteChapterFromClipboard(activeProject.id, insertAfterChapterId);
+  }
+
+  function pasteEntryFromToolbar(): void {
+    if (!activeProject) {
+      return;
+    }
+    const orderedSelectedEntryIds = currentEntryIds.filter((entryId) => selectedEntryIdSet.has(entryId));
+    const insertAfterEntryId =
+      orderedSelectedEntryIds.length > 0 ? orderedSelectedEntryIds[orderedSelectedEntryIds.length - 1] : undefined;
+    pasteEntryFromClipboard(activeProject.id, activeChapter?.id ?? null, insertAfterEntryId);
   }
 
   function openProjectContextMenu(event: MouseEvent, projectId: string): void {
@@ -2138,6 +2324,12 @@ function App() {
 
   function openChapterContextMenu(event: MouseEvent, chapterId: string): void {
     event.preventDefault();
+    if (selectedChapterIdSet.has(chapterId)) {
+      setSelectedChapterIds((previous) => previous.filter((id) => Boolean(workspace.chapters[id])));
+    } else {
+      setSelectedChapterIds([chapterId]);
+      chapterSelectionAnchorRef.current = chapterId;
+    }
     const menuWidth = 180;
     const menuHeight = 230;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
@@ -2147,6 +2339,15 @@ function App() {
 
   function openEntryContextMenu(event: MouseEvent, entryId: string): void {
     event.preventDefault();
+    mutateWorkspace((draft) => {
+      draft.selectedEntryId = entryId;
+    });
+    if (selectedEntryIdSet.has(entryId)) {
+      setSelectedEntryIds((previous) => previous.filter((id) => Boolean(workspace.entries[id])));
+    } else {
+      setSelectedEntryIds([entryId]);
+      entrySelectionAnchorRef.current = entryId;
+    }
     const menuWidth = 180;
     const menuHeight = 260;
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
@@ -2431,6 +2632,50 @@ function App() {
     });
   }
 
+  function deleteChaptersBatch(chapterIds: string[]): void {
+    const uniqueChapterIds = Array.from(new Set(chapterIds)).filter((chapterId) =>
+      Boolean(workspace.chapters[chapterId]),
+    );
+    if (uniqueChapterIds.length === 0) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `刪除已選 ${uniqueChapterIds.length} 個章節？其下史料會一併刪除。`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    mutateWorkspace((draft) => {
+      for (const chapterId of uniqueChapterIds) {
+        const chapter = draft.chapters[chapterId];
+        if (!chapter) {
+          continue;
+        }
+        for (const entryId of chapter.entryIds) {
+          delete draft.entries[entryId];
+        }
+        const project = draft.projects[chapter.projectId];
+        if (project) {
+          project.chapterIds = project.chapterIds.filter((id) => id !== chapterId);
+        }
+        delete draft.chapters[chapterId];
+      }
+      if (draft.activeChapterId && !draft.chapters[draft.activeChapterId]) {
+        draft.activeChapterId = null;
+      }
+      if (draft.selectedEntryId && !draft.entries[draft.selectedEntryId]) {
+        draft.selectedEntryId = null;
+      }
+    });
+
+    setSelectedChapterIds((previous) => previous.filter((chapterId) => !uniqueChapterIds.includes(chapterId)));
+    setSelectedEntryIds((previous) => previous.filter((entryId) => Boolean(workspace.entries[entryId])));
+    if (chapterSelectionAnchorRef.current && uniqueChapterIds.includes(chapterSelectionAnchorRef.current)) {
+      chapterSelectionAnchorRef.current = null;
+    }
+  }
+
   function updateEntryModalDraft(patch: Partial<EntryDraft>): void {
     setModalState((current) => {
       if (
@@ -2587,6 +2832,58 @@ function App() {
         return null;
       }
       if (current.kind === "entry-edit" && current.entryId === entryId) {
+        return null;
+      }
+      return current;
+    });
+  }
+
+  function deleteEntriesBatch(entryIds: string[]): void {
+    const uniqueEntryIds = Array.from(new Set(entryIds)).filter((entryId) => Boolean(workspace.entries[entryId]));
+    if (uniqueEntryIds.length === 0) {
+      return;
+    }
+    const confirmed = window.confirm(`刪除已選 ${uniqueEntryIds.length} 條史料？`);
+    if (!confirmed) {
+      return;
+    }
+
+    mutateWorkspace((draft) => {
+      for (const entryId of uniqueEntryIds) {
+        const entry = draft.entries[entryId];
+        if (!entry) {
+          continue;
+        }
+        if (entry.chapterId) {
+          const chapter = draft.chapters[entry.chapterId];
+          if (chapter) {
+            chapter.entryIds = chapter.entryIds.filter((id) => id !== entryId);
+          }
+        } else {
+          const project = draft.projects[entry.projectId];
+          if (project) {
+            project.entryIds = project.entryIds.filter((id) => id !== entryId);
+          }
+        }
+        delete draft.entries[entryId];
+      }
+      if (draft.selectedEntryId && !draft.entries[draft.selectedEntryId]) {
+        draft.selectedEntryId = null;
+      }
+    });
+
+    setSelectedEntryIds((previous) => previous.filter((entryId) => !uniqueEntryIds.includes(entryId)));
+    if (entrySelectionAnchorRef.current && uniqueEntryIds.includes(entrySelectionAnchorRef.current)) {
+      entrySelectionAnchorRef.current = null;
+    }
+    setModalState((current) => {
+      if (!current) {
+        return current;
+      }
+      if (
+        (current.kind === "entry-view" || current.kind === "entry-edit") &&
+        uniqueEntryIds.includes(current.entryId)
+      ) {
         return null;
       }
       return current;
@@ -3175,7 +3472,7 @@ function App() {
             <button
               className="ghost-btn"
               disabled={!activeProject || clipboard?.kind !== "chapter"}
-              onClick={() => pasteChapterFromClipboard()}
+              onClick={pasteChapterFromToolbar}
             >
               粘貼章節
             </button>
@@ -3263,7 +3560,8 @@ function App() {
                         return null;
                       }
 
-                      const isChapterActive = activeChapter?.id === chapter.id;
+                      const isChapterActive =
+                        activeChapter?.id === chapter.id || selectedChapterIdSet.has(chapter.id);
                       const chapterDropKey = `chapter:${chapter.id}`;
                       const chapterDragKey = `chapter:${chapter.id}`;
 
@@ -3298,7 +3596,7 @@ function App() {
 
                           <button
                             className="chapter-main"
-                            onClick={() => selectChapter(project.id, chapter.id)}
+                            onClick={(event) => handleChapterClick(event, project.id, chapter.id)}
                             onContextMenu={(event) => openChapterContextMenu(event, chapter.id)}
                             title={chapter.title}
                           >
@@ -3334,7 +3632,7 @@ function App() {
               </button>
               <button
                 className="ghost-btn"
-                onClick={() => pasteEntryFromClipboard()}
+                onClick={pasteEntryFromToolbar}
                 disabled={!activeProject || clipboard?.kind !== "entry"}
               >
                 粘貼史料
@@ -3359,7 +3657,7 @@ function App() {
               <>
                 <div style={{ height: `${entryVirtualRange.topSpacer}px` }} />
                 {visibleEntries.map((entry) => {
-                const isSelected = selectedEntry?.id === entry.id;
+                const isSelected = selectedEntry?.id === entry.id || selectedEntryIdSet.has(entry.id);
                 const entryDragKey = `entry:${entry.id}`;
                 const entryDropKey = `entry:${entry.id}`;
                 const tags = extractTags(entry.note);
@@ -3380,11 +3678,7 @@ function App() {
                   <article
                     key={entry.id}
                     className={`entry-card virtualized-row ${isSelected ? "selected" : ""} ${dropTargetKey === entryDropKey ? "drop-target" : ""}`}
-                    onClick={() => {
-                      mutateWorkspace((draft) => {
-                        draft.selectedEntryId = entry.id;
-                      });
-                    }}
+                    onClick={(event) => handleEntryCardClick(event, entry.id)}
                     onDoubleClick={() => beginViewEntry(entry.id, centerEntryHighlightQuery)}
                     onContextMenu={(event) => openEntryContextMenu(event, entry.id)}
                     onDragOver={(event) => {
@@ -3744,7 +4038,13 @@ function App() {
                 onClick={() => {
                   const chapter = workspace.chapters[contextMenu.chapterId];
                   if (chapter) {
-                    pasteChapterFromClipboard(chapter.projectId, chapter.id);
+                    const selectedChapterIdsForAction = collectOrderedChapterIdsForContext(
+                      chapter.id,
+                      chapterSelectionForMenu,
+                    );
+                    const insertAfterChapterId =
+                      selectedChapterIdsForAction[selectedChapterIdsForAction.length - 1] ?? chapter.id;
+                    pasteChapterFromClipboard(chapter.projectId, insertAfterChapterId);
                   }
                   setContextMenu(null);
                 }}
@@ -3763,7 +4063,15 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
-                  copyChapterToClipboard(contextMenu.chapterId);
+                  const selectedChapterIdsForAction = collectOrderedChapterIdsForContext(
+                    contextMenu.chapterId,
+                    chapterSelectionForMenu,
+                  );
+                  copyChaptersToClipboard(
+                    selectedChapterIdsForAction.length > 0
+                      ? selectedChapterIdsForAction
+                      : [contextMenu.chapterId],
+                  );
                   setContextMenu(null);
                 }}
               >
@@ -3772,7 +4080,15 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
-                  deleteChapter(contextMenu.chapterId);
+                  const selectedChapterIdsForAction = collectOrderedChapterIdsForContext(
+                    contextMenu.chapterId,
+                    chapterSelectionForMenu,
+                  );
+                  if (selectedChapterIdsForAction.length > 1) {
+                    deleteChaptersBatch(selectedChapterIdsForAction);
+                  } else {
+                    deleteChapter(contextMenu.chapterId);
+                  }
                   setContextMenu(null);
                 }}
               >
@@ -3813,7 +4129,13 @@ function App() {
                 onClick={() => {
                   const entry = workspace.entries[contextMenu.entryId];
                   if (entry) {
-                    pasteEntryFromClipboard(entry.projectId, entry.chapterId, entry.id);
+                    const selectedEntryIdsForAction = collectOrderedEntryIdsForContext(
+                      entry.id,
+                      entrySelectionForMenu,
+                    );
+                    const insertAfterEntryId =
+                      selectedEntryIdsForAction[selectedEntryIdsForAction.length - 1] ?? entry.id;
+                    pasteEntryFromClipboard(entry.projectId, entry.chapterId, insertAfterEntryId);
                   }
                   setContextMenu(null);
                 }}
@@ -3823,7 +4145,13 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
-                  copyEntryToClipboard(contextMenu.entryId);
+                  const selectedEntryIdsForAction = collectOrderedEntryIdsForContext(
+                    contextMenu.entryId,
+                    entrySelectionForMenu,
+                  );
+                  copyEntriesToClipboard(
+                    selectedEntryIdsForAction.length > 0 ? selectedEntryIdsForAction : [contextMenu.entryId],
+                  );
                   setContextMenu(null);
                 }}
               >
@@ -3832,7 +4160,15 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
-                  deleteEntry(contextMenu.entryId);
+                  const selectedEntryIdsForAction = collectOrderedEntryIdsForContext(
+                    contextMenu.entryId,
+                    entrySelectionForMenu,
+                  );
+                  if (selectedEntryIdsForAction.length > 1) {
+                    deleteEntriesBatch(selectedEntryIdsForAction);
+                  } else {
+                    deleteEntry(contextMenu.entryId);
+                  }
                   setContextMenu(null);
                 }}
               >
