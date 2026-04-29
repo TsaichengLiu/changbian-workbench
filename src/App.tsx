@@ -234,7 +234,13 @@ type ModalState =
   | { kind: "project-rename"; projectId: string; value: string }
   | { kind: "chapter-create"; projectId: string; value: string; insertAfterChapterId: string | null }
   | { kind: "chapter-rename"; chapterId: string; value: string }
-  | { kind: "entry-view"; entryId: string; editing: boolean; draft: EntryDraft }
+  | {
+      kind: "entry-view";
+      entryId: string;
+      editing: boolean;
+      draft: EntryDraft;
+      highlightQuery?: string;
+    }
   | {
       kind: "entry-create";
       projectId: string;
@@ -919,6 +925,65 @@ function buildHighlightTokens(query: string): string[] {
   ).sort((a, b) => b.length - a.length);
 }
 
+function findFirstTokenMatch(text: string, tokens: string[]): { index: number; length: number } | null {
+  const haystack = text.toLocaleLowerCase();
+  let match: { index: number; length: number } | null = null;
+
+  for (const token of tokens) {
+    const needle = token.trim().toLocaleLowerCase();
+    if (!needle) {
+      continue;
+    }
+    const index = haystack.indexOf(needle);
+    if (index < 0) {
+      continue;
+    }
+    if (!match || index < match.index || (index === match.index && needle.length > match.length)) {
+      match = { index, length: needle.length };
+    }
+  }
+
+  return match;
+}
+
+function summarizeAroundMatch(text: string, query: string, max = 120): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.length <= max) {
+    return normalized;
+  }
+
+  const tokens = buildHighlightTokens(query);
+  const match = findFirstTokenMatch(normalized, tokens);
+  if (!match) {
+    return summarize(normalized, max);
+  }
+
+  const safeMax = Math.max(24, max);
+  const halfWindow = Math.max(8, Math.floor((safeMax - match.length) / 2));
+  let start = Math.max(0, match.index - halfWindow);
+  let end = Math.min(normalized.length, match.index + match.length + halfWindow);
+
+  if (end - start < safeMax) {
+    const shortfall = safeMax - (end - start);
+    const extendLeft = Math.min(start, Math.floor(shortfall / 2));
+    start -= extendLeft;
+    end = Math.min(normalized.length, end + (shortfall - extendLeft));
+  }
+
+  if (end - start < safeMax && start > 0) {
+    start = Math.max(0, end - safeMax);
+  }
+  if (end - start < safeMax && end < normalized.length) {
+    end = Math.min(normalized.length, start + safeMax);
+  }
+
+  const snippet = normalized.slice(start, end).trim();
+  return `${start > 0 ? "..." : ""}${snippet}${end < normalized.length ? "..." : ""}`;
+}
+
 function renderHighlightedPlainText(text: string, query: string): string {
   let html = escapeHtml(text || "");
   const tokens = buildHighlightTokens(query);
@@ -1012,6 +1077,10 @@ function App() {
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
   const [globalQuery, setGlobalQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string>("");
+  const [entryHighlightContext, setEntryHighlightContext] = useState<{
+    entryId: string;
+    query: string;
+  } | null>(null);
   const [exportScope, setExportScope] = useState<ExportScope>("active");
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [clipboard, setClipboard] = useState<ClipboardState>(null);
@@ -1431,12 +1500,21 @@ function App() {
     });
   }
 
-  function jumpToSearchResult(result: SearchResult): void {
+  function jumpToSearchResult(result: SearchResult, highlightQuery = ""): void {
     mutateWorkspace((draft) => {
       draft.activeProjectId = result.projectId;
       draft.activeChapterId = result.chapterId;
       draft.selectedEntryId = result.entryId;
     });
+    const normalizedHighlight = highlightQuery.trim();
+    setEntryHighlightContext(
+      normalizedHighlight
+        ? {
+            entryId: result.entryId,
+            query: normalizedHighlight,
+          }
+        : null,
+    );
   }
 
   function beginCreateProject(insertAfterProjectId: string | null = null): void {
@@ -1472,26 +1550,39 @@ function App() {
     setModalState({ kind: "chapter-rename", chapterId, value: chapter.title });
   }
 
-  function beginEditEntry(entryId: string): void {
+  function beginEditEntry(entryId: string, highlightQuery = ""): void {
     const entry = workspace.entries[entryId];
     if (!entry) {
       return;
     }
+    const resolvedHighlight =
+      highlightQuery.trim() ||
+      (entryHighlightContext?.entryId === entryId ? entryHighlightContext.query : "");
 
     setModalState({
       kind: "entry-view",
       entryId,
       editing: true,
       draft: entryToDraft(entry),
+      highlightQuery: resolvedHighlight,
     });
   }
 
-  function beginViewEntry(entryId: string): void {
+  function beginViewEntry(entryId: string, highlightQuery = ""): void {
     const entry = workspace.entries[entryId];
     if (!entry) {
       return;
     }
-    setModalState({ kind: "entry-view", entryId, editing: false, draft: entryToDraft(entry) });
+    const resolvedHighlight =
+      highlightQuery.trim() ||
+      (entryHighlightContext?.entryId === entryId ? entryHighlightContext.query : "");
+    setModalState({
+      kind: "entry-view",
+      entryId,
+      editing: false,
+      draft: entryToDraft(entry),
+      highlightQuery: resolvedHighlight,
+    });
   }
 
   function beginCreateEntryAfter(entryId: string): void {
@@ -2688,6 +2779,7 @@ function App() {
   const entryViewModal = modalState?.kind === "entry-view" ? modalState : null;
   const viewedEntry = entryViewModal ? workspace.entries[entryViewModal.entryId] ?? null : null;
   const viewedEntryDraft = entryViewModal ? entryViewModal.draft : null;
+  const entryViewHighlightQuery = entryViewModal?.highlightQuery?.trim() ?? "";
 
   return (
     <>
@@ -2760,7 +2852,7 @@ function App() {
                   return sum + (chapter?.entryIds.length ?? 0);
                 }, 0);
 
-              const isProjectActive = activeProject?.id === project.id;
+              const isProjectActive = activeProject?.id === project.id && !activeChapter;
               const projectDropKey = `project:${project.id}`;
               const projectDragKey = `project:${project.id}`;
 
@@ -3056,63 +3148,77 @@ function App() {
                 searchResults.length === 0 ? (
                   <p className="empty-inline">未檢索到符合內容。</p>
                 ) : (
-                  searchResults.map((result) => (
-                    <button
-                      key={result.entryId}
-                      className="search-item"
-                      onClick={() => jumpToSearchResult(result)}
-                      onDoubleClick={() => {
-                        jumpToSearchResult(result);
-                        beginViewEntry(result.entryId);
-                      }}
-                    >
-                      <div
-                        className="search-path"
-                        dangerouslySetInnerHTML={{
-                          __html: renderHighlightedPlainText(
-                            `${result.projectTitle} / ${result.chapterTitle}`,
-                            searchHighlightQuery,
-                          ),
+                  searchResults.map((result) => {
+                    const entry = workspace.entries[result.entryId];
+                    const sourcePreview = summarizeAroundMatch(
+                      entry?.sourceText ?? result.snippet,
+                      searchHighlightQuery,
+                      140,
+                    );
+                    const citationPreview = summarizeAroundMatch(
+                      entry?.citation ?? result.citation,
+                      searchHighlightQuery,
+                      100,
+                    );
+
+                    return (
+                      <button
+                        key={result.entryId}
+                        className="search-item"
+                        onClick={() => jumpToSearchResult(result, searchHighlightQuery)}
+                        onDoubleClick={() => {
+                          jumpToSearchResult(result, searchHighlightQuery);
+                          beginViewEntry(result.entryId, searchHighlightQuery);
                         }}
-                      />
-                      <div
-                        className="search-time"
-                        dangerouslySetInnerHTML={{
-                          __html: renderHighlightedPlainText(
-                            formatEntryHeadline(result.timeText, result.summaryText),
-                            searchHighlightQuery,
-                          ),
-                        }}
-                      />
-                      <div
-                        className="search-snippet"
-                        dangerouslySetInnerHTML={{
-                          __html: renderHighlightedPlainText(
-                            result.snippet || "（無文本）",
-                            searchHighlightQuery,
-                          ),
-                        }}
-                      />
-                      <div
-                        className="search-citation"
-                        dangerouslySetInnerHTML={{
-                          __html: renderHighlightedPlainText(
-                            result.citation || "（無引文註釋）",
-                            searchHighlightQuery,
-                          ),
-                        }}
-                      />
-                      {result.tags.length > 0 && (
-                        <div className="tag-row">
-                          {result.tags.map((tag) => (
-                            <span key={`${result.entryId}-${tag}`} className="tag-chip">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </button>
-                  ))
+                      >
+                        <div
+                          className="search-path"
+                          dangerouslySetInnerHTML={{
+                            __html: renderHighlightedPlainText(
+                              `${result.projectTitle} / ${result.chapterTitle}`,
+                              searchHighlightQuery,
+                            ),
+                          }}
+                        />
+                        <div
+                          className="search-time"
+                          dangerouslySetInnerHTML={{
+                            __html: renderHighlightedPlainText(
+                              formatEntryHeadline(result.timeText, result.summaryText),
+                              searchHighlightQuery,
+                            ),
+                          }}
+                        />
+                        <div
+                          className="search-snippet"
+                          dangerouslySetInnerHTML={{
+                            __html: renderHighlightedPlainText(
+                              sourcePreview || "（無文本）",
+                              searchHighlightQuery,
+                            ),
+                          }}
+                        />
+                        <div
+                          className="search-citation"
+                          dangerouslySetInnerHTML={{
+                            __html: renderHighlightedPlainText(
+                              citationPreview || "（無引文註釋）",
+                              searchHighlightQuery,
+                            ),
+                          }}
+                        />
+                        {result.tags.length > 0 && (
+                          <div className="tag-row">
+                            {result.tags.map((tag) => (
+                              <span key={`${result.entryId}-${tag}`} className="tag-chip">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })
                 )
               ) : (
                 <p className="empty-inline">檢索後可點結果跳轉到對應史料。</p>
@@ -3472,7 +3578,15 @@ function App() {
                     placeholder="如：萬曆二十年春 / 1644年 / 未詳"
                   />
                 ) : (
-                  <div className="entry-view-text">{viewedEntryDraft?.timeText.trim() || "未著錄時間"}</div>
+                  <div
+                    className="entry-view-text"
+                    dangerouslySetInnerHTML={{
+                      __html: renderHighlightedPlainText(
+                        viewedEntryDraft?.timeText.trim() || "未著錄時間",
+                        entryViewHighlightQuery,
+                      ),
+                    }}
+                  />
                 )}
               </section>
 
@@ -3485,7 +3599,15 @@ function App() {
                     placeholder="例如：張居正改革前夕的朝議分歧"
                   />
                 ) : (
-                  <div className="entry-view-text">{viewedEntryDraft?.summary.trim() || "（無摘要）"}</div>
+                  <div
+                    className="entry-view-text"
+                    dangerouslySetInnerHTML={{
+                      __html: renderHighlightedPlainText(
+                        viewedEntryDraft?.summary.trim() || "（無摘要）",
+                        entryViewHighlightQuery,
+                      ),
+                    }}
+                  />
                 )}
               </section>
 
@@ -3535,7 +3657,12 @@ function App() {
                 ) : viewedEntryDraft?.sourceText.trim() ? (
                   <div
                     className="entry-view-source rich-markup"
-                    dangerouslySetInnerHTML={{ __html: renderLightMarkup(viewedEntryDraft.sourceText.trim()) }}
+                    dangerouslySetInnerHTML={{
+                      __html: renderHighlightedLightMarkup(
+                        viewedEntryDraft.sourceText.trim(),
+                        entryViewHighlightQuery,
+                      ),
+                    }}
                   />
                 ) : (
                   <div className="entry-view-text">（尚未輸入史料文本）</div>
@@ -3552,7 +3679,15 @@ function App() {
                     placeholder="例如：#政治 #人物關係 #萬曆朝 ..."
                   />
                 ) : (
-                  <div className="entry-view-note">{viewedEntryDraft?.note.trim() || "（無備註）"}</div>
+                  <div
+                    className="entry-view-note"
+                    dangerouslySetInnerHTML={{
+                      __html: renderHighlightedPlainText(
+                        viewedEntryDraft?.note.trim() || "（無備註）",
+                        entryViewHighlightQuery,
+                      ),
+                    }}
+                  />
                 )}
               </section>
 
@@ -3566,7 +3701,15 @@ function App() {
                     placeholder="如：某某書卷X，某某頁；可含《書名》供後續聚合"
                   />
                 ) : (
-                  <div className="entry-view-citation">{viewedEntryDraft?.citation.trim() || "（無引文註釋）"}</div>
+                  <div
+                    className="entry-view-citation"
+                    dangerouslySetInnerHTML={{
+                      __html: renderHighlightedPlainText(
+                        viewedEntryDraft?.citation.trim() || "（無引文註釋）",
+                        entryViewHighlightQuery,
+                      ),
+                    }}
+                  />
                 )}
               </section>
             </div>
@@ -3583,7 +3726,10 @@ function App() {
                 </>
               ) : (
                 <>
-                  <button className="ghost-btn" onClick={() => beginEditEntry(viewedEntry.id)}>
+                  <button
+                    className="ghost-btn"
+                    onClick={() => beginEditEntry(viewedEntry.id, entryViewHighlightQuery)}
+                  >
                     編輯
                   </button>
                   <button className="ghost-btn" onClick={() => setModalState(null)}>
@@ -3815,10 +3961,10 @@ function App() {
                         <button
                           key={`advanced-${result.entryId}`}
                           className="advanced-result"
-                          onClick={() => jumpToSearchResult(result)}
+                          onClick={() => jumpToSearchResult(result, advancedHighlightQuery)}
                           onDoubleClick={() => {
-                            jumpToSearchResult(result);
-                            beginViewEntry(result.entryId);
+                            jumpToSearchResult(result, advancedHighlightQuery);
+                            beginViewEntry(result.entryId, advancedHighlightQuery);
                           }}
                         >
                           <div
@@ -3844,7 +3990,7 @@ function App() {
                               className="advanced-source rich-markup"
                               dangerouslySetInnerHTML={{
                                 __html: renderHighlightedLightMarkup(
-                                  entry.sourceText.trim(),
+                                  summarizeAroundMatch(entry.sourceText, advancedHighlightQuery, 220),
                                   advancedHighlightQuery,
                                 ),
                               }}
@@ -3856,7 +4002,11 @@ function App() {
                             className="search-citation"
                             dangerouslySetInnerHTML={{
                               __html: renderHighlightedPlainText(
-                                entry?.citation.trim() || "（尚未輸入引文註釋）",
+                                summarizeAroundMatch(
+                                  entry?.citation.trim() || "",
+                                  advancedHighlightQuery,
+                                  120,
+                                ) || "（尚未輸入引文註釋）",
                                 advancedHighlightQuery,
                               ),
                             }}
