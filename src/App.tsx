@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { ExportScope, exportAsDocx, exportAsTxt, exportAsXlsx } from "./exporters";
-import { matchesTraditionalSimplified } from "./search";
+import { buildVariants, matchesTraditionalSimplified } from "./search";
 import type { Entry, WorkspaceData } from "./types";
 import { createId, reorderById, summarize } from "./utils";
 
@@ -898,6 +898,50 @@ function escapeHtml(text: string): string {
 
 function renderLightMarkup(text: string): string {
   let html = escapeHtml(text);
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/__([^_\n]+)__/g, "<u>$1</u>");
+  html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  return html.replace(/\r?\n/g, "<br />");
+}
+
+function escapeRegexToken(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildHighlightTokens(query: string): string[] {
+  return Array.from(
+    new Set(
+      buildVariants(query)
+        .flatMap((variant) => variant.split(/\s+/))
+        .map((token) => token.trim())
+        .filter(Boolean),
+    ),
+  ).sort((a, b) => b.length - a.length);
+}
+
+function renderHighlightedPlainText(text: string, query: string): string {
+  let html = escapeHtml(text || "");
+  const tokens = buildHighlightTokens(query);
+  for (const token of tokens) {
+    const escapedToken = escapeRegexToken(escapeHtml(token));
+    html = html.replace(
+      new RegExp(escapedToken, "gi"),
+      (match) => `<mark class="match-highlight">${match}</mark>`,
+    );
+  }
+  return html.replace(/\r?\n/g, "<br />");
+}
+
+function renderHighlightedLightMarkup(text: string, query: string): string {
+  let html = escapeHtml(text || "");
+  const tokens = buildHighlightTokens(query);
+  for (const token of tokens) {
+    const escapedToken = escapeRegexToken(escapeHtml(token));
+    html = html.replace(
+      new RegExp(escapedToken, "gi"),
+      (match) => `<mark class="match-highlight">${match}</mark>`,
+    );
+  }
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/__([^_\n]+)__/g, "<u>$1</u>");
   html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
@@ -3007,14 +3051,36 @@ function App() {
                         beginViewEntry(result.entryId);
                       }}
                     >
-                      <div className="search-path">
-                        {result.projectTitle} / {result.chapterTitle}
-                      </div>
-                      <div className="search-time">
-                        {formatEntryHeadline(result.timeText, result.summaryText)}
-                      </div>
-                      <div className="search-snippet">{result.snippet || "（無文本）"}</div>
-                      <div className="search-citation">{result.citation || "（無引文註釋）"}</div>
+                      <div
+                        className="search-path"
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedPlainText(
+                            `${result.projectTitle} / ${result.chapterTitle}`,
+                            globalQuery,
+                          ),
+                        }}
+                      />
+                      <div
+                        className="search-time"
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedPlainText(
+                            formatEntryHeadline(result.timeText, result.summaryText),
+                            globalQuery,
+                          ),
+                        }}
+                      />
+                      <div
+                        className="search-snippet"
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedPlainText(result.snippet || "（無文本）", globalQuery),
+                        }}
+                      />
+                      <div
+                        className="search-citation"
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedPlainText(result.citation || "（無引文註釋）", globalQuery),
+                        }}
+                      />
                       {result.tags.length > 0 && (
                         <div className="tag-row">
                           {result.tags.map((tag) => (
@@ -3734,23 +3800,43 @@ function App() {
                             beginViewEntry(result.entryId);
                           }}
                         >
-                          <div className="search-path">
-                            {result.projectTitle} / {result.chapterTitle}
-                          </div>
-                          <div className="search-time">
-                            {formatEntryHeadline(result.timeText, result.summaryText)}
-                          </div>
+                          <div
+                            className="search-path"
+                            dangerouslySetInnerHTML={{
+                              __html: renderHighlightedPlainText(
+                                `${result.projectTitle} / ${result.chapterTitle}`,
+                                advancedModal.query,
+                              ),
+                            }}
+                          />
+                          <div
+                            className="search-time"
+                            dangerouslySetInnerHTML={{
+                              __html: renderHighlightedPlainText(
+                                formatEntryHeadline(result.timeText, result.summaryText),
+                                advancedModal.query,
+                              ),
+                            }}
+                          />
                           {entry?.sourceText.trim() ? (
                             <div
                               className="advanced-source rich-markup"
-                              dangerouslySetInnerHTML={{ __html: renderLightMarkup(entry.sourceText.trim()) }}
+                              dangerouslySetInnerHTML={{
+                                __html: renderHighlightedLightMarkup(entry.sourceText.trim(), advancedModal.query),
+                              }}
                             />
                           ) : (
                             <div className="advanced-source">（尚未輸入史料文本）</div>
                           )}
-                          <div className="search-citation">
-                            {entry?.citation.trim() || "（尚未輸入引文註釋）"}
-                          </div>
+                          <div
+                            className="search-citation"
+                            dangerouslySetInnerHTML={{
+                              __html: renderHighlightedPlainText(
+                                entry?.citation.trim() || "（尚未輸入引文註釋）",
+                                advancedModal.query,
+                              ),
+                            }}
+                          />
                           {result.tags.length > 0 && (
                             <div className="tag-row">
                               {result.tags.map((tag) => (

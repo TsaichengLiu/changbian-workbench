@@ -446,8 +446,15 @@ h3 {
 }
 
 .entry-card.selected {
-  border-color: rgba(47, 111, 105, 0.65);
-  box-shadow: 0 10px 24px rgba(47, 111, 105, 0.14);
+  border-color: rgba(47, 111, 105, 0.8);
+  background: linear-gradient(160deg, rgba(233, 248, 244, 0.95), rgba(244, 252, 250, 0.88));
+  box-shadow: 0 14px 28px rgba(47, 111, 105, 0.2);
+  outline: 2px solid rgba(47, 111, 105, 0.32);
+  outline-offset: 1px;
+}
+
+.entry-card.selected .entry-heading {
+  color: #1c5a55;
 }
 
 .entry-top {
@@ -674,6 +681,13 @@ h3 {
 .search-citation {
   color: #4c6368;
   font-size: 13px;
+}
+
+.match-highlight {
+  background: rgba(255, 234, 122, 0.95);
+  color: #2a2a24;
+  border-radius: 4px;
+  padding: 0 2px;
 }
 
 .empty-state,

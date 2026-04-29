@@ -184,6 +184,10 @@ const SONGTI_FONT: IRunOptions["font"] = {
   cs: "SimSun",
 };
 
+const DOCX_HIGHLIGHT_COLOR = "1F4EAA";
+const DOCX_BODY_SIZE = 24; // 小四（12pt, half-points）
+const DOCX_LINE_SPACING = 400; // 20pt 行距（twips）
+
 export function exportAsTxt(workspace: WorkspaceData, scope: ExportScope): void {
   const projects = getExportProjects(workspace, scope);
   const lines: string[] = ["長編工作臺匯出", ""];
@@ -252,14 +256,14 @@ function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entr
       text: `${order}. ${entryHeadline(entry)}｜${summaryLabel}`,
       heading: HeadingLevel.HEADING_3,
       indent: { left: sharedIndent },
-      spacing: { before: 80, after: 60 },
+      spacing: { before: 80, after: 60, line: DOCX_LINE_SPACING },
     }),
   );
 
   children.push(
     new Paragraph({
       indent: { left: sharedIndent },
-      spacing: { after: 80 },
+      spacing: { after: 80, line: DOCX_LINE_SPACING },
       children: [
         new TextRun({ text: "史料文本：", bold: true }),
         new TextRun({ text: "", break: 1 }),
@@ -271,7 +275,7 @@ function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entr
   children.push(
     new Paragraph({
       indent: { left: sharedIndent },
-      spacing: { after: 80 },
+      spacing: { after: 80, line: DOCX_LINE_SPACING },
       children: [
         new TextRun({ text: "備註：", bold: true, font: KAITI_FONT }),
         new TextRun({ text: "", break: 1 }),
@@ -283,7 +287,7 @@ function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entr
   children.push(
     new Paragraph({
       indent: { left: sharedIndent },
-      spacing: { after: 120 },
+      spacing: { after: 120, line: DOCX_LINE_SPACING },
       children: [
         new TextRun({ text: "引文註釋：", bold: true }),
         new TextRun({ text: "", break: 1 }),
@@ -302,7 +306,7 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
     }),
     new Paragraph({
       children: [new TextRun({ text: `匯出時間：${formatDate(Date.now())}` })],
-      spacing: { after: 180 },
+      spacing: { after: 180, line: DOCX_LINE_SPACING },
     }),
     new TableOfContents("目錄", {
       headingStyleRange: "1-3",
@@ -317,7 +321,7 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
         text: `專案：${project.title}`,
         heading: HeadingLevel.HEADING_1,
         pageBreakBefore: true,
-        spacing: { before: projectIndex === 0 ? 200 : 120, after: 100 },
+        spacing: { before: projectIndex === 0 ? 200 : 120, after: 100, line: DOCX_LINE_SPACING },
       }),
     );
 
@@ -354,6 +358,7 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
           text: "未分章史料",
           heading: HeadingLevel.HEADING_2,
           indent: { left: DOCX_INDENT.chapter },
+          spacing: { line: DOCX_LINE_SPACING },
         }),
       );
       for (const entry of directEntries) {
@@ -368,6 +373,7 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
           text: `章節：${group.chapter.title}`,
           heading: HeadingLevel.HEADING_2,
           indent: { left: DOCX_INDENT.chapter },
+          spacing: { line: DOCX_LINE_SPACING },
         }),
       );
 
@@ -385,23 +391,46 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
     styles: {
       default: {
         document: {
+          paragraph: {
+            spacing: {
+              line: DOCX_LINE_SPACING,
+            },
+          },
           run: {
             font: SONGTI_FONT,
+            size: DOCX_BODY_SIZE,
+          },
+        },
+        title: {
+          run: {
+            font: SONGTI_FONT,
+            bold: true,
+            color: DOCX_HIGHLIGHT_COLOR,
+            size: 38,
           },
         },
         heading1: {
           run: {
             font: SONGTI_FONT,
+            bold: true,
+            color: DOCX_HIGHLIGHT_COLOR,
+            size: 34,
           },
         },
         heading2: {
           run: {
             font: SONGTI_FONT,
+            bold: true,
+            color: DOCX_HIGHLIGHT_COLOR,
+            size: 30,
           },
         },
         heading3: {
           run: {
             font: SONGTI_FONT,
+            bold: true,
+            color: DOCX_HIGHLIGHT_COLOR,
+            size: 28,
           },
         },
       },
