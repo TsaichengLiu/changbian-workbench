@@ -1969,6 +1969,8 @@ function App() {
     if (!clipboard || clipboard.kind !== "project") {
       return;
     }
+    const resolvedInsertAfterProjectId =
+      typeof insertAfterProjectId === "string" ? insertAfterProjectId : null;
 
     mutateWorkspace((draft) => {
       const projectId = createId("project");
@@ -1980,8 +1982,8 @@ function App() {
         entryIds: [],
         createdAt: Date.now(),
       };
-      if (insertAfterProjectId) {
-        const index = draft.projectOrder.indexOf(insertAfterProjectId);
+      if (resolvedInsertAfterProjectId) {
+        const index = draft.projectOrder.indexOf(resolvedInsertAfterProjectId);
         if (index >= 0) {
           draft.projectOrder.splice(index + 1, 0, projectId);
         } else {
@@ -2018,7 +2020,10 @@ function App() {
       return;
     }
 
-    const resolvedProjectId = targetProjectId ?? activeProject?.id ?? null;
+    const resolvedProjectId =
+      typeof targetProjectId === "string" ? targetProjectId : activeProject?.id ?? null;
+    const resolvedInsertAfterChapterId =
+      typeof insertAfterChapterId === "string" ? insertAfterChapterId : null;
     if (!resolvedProjectId) {
       return;
     }
@@ -2037,8 +2042,8 @@ function App() {
         entryIds: [],
         createdAt: Date.now(),
       };
-      if (insertAfterChapterId && draft.chapters[insertAfterChapterId]?.projectId === project.id) {
-        const index = project.chapterIds.indexOf(insertAfterChapterId);
+      if (resolvedInsertAfterChapterId && draft.chapters[resolvedInsertAfterChapterId]?.projectId === project.id) {
+        const index = project.chapterIds.indexOf(resolvedInsertAfterChapterId);
         if (index >= 0) {
           project.chapterIds.splice(index + 1, 0, chapterId);
         } else {
@@ -2079,10 +2084,15 @@ function App() {
       return;
     }
 
-    const resolvedProjectId = targetProjectId ?? activeProject?.id ?? null;
+    const resolvedProjectId =
+      typeof targetProjectId === "string" ? targetProjectId : activeProject?.id ?? null;
     if (!resolvedProjectId) {
       return;
     }
+    const normalizedInsertAfterEntryId =
+      insertAfterEntryId === null || typeof insertAfterEntryId === "string"
+        ? insertAfterEntryId
+        : undefined;
 
     mutateWorkspace((draft) => {
       const targetProject = draft.projects[resolvedProjectId];
@@ -2102,7 +2112,7 @@ function App() {
         draft,
         targetProject.id,
         scopedChapterId,
-        insertAfterEntryId ?? draft.selectedEntryId,
+        normalizedInsertAfterEntryId ?? draft.selectedEntryId,
       );
       const entryId = appendEntryDraft(
         draft,
@@ -3158,14 +3168,14 @@ function App() {
             <button
               className="ghost-btn"
               disabled={clipboard?.kind !== "project"}
-              onClick={pasteProjectFromClipboard}
+              onClick={() => pasteProjectFromClipboard()}
             >
               粘貼專案
             </button>
             <button
               className="ghost-btn"
               disabled={!activeProject || clipboard?.kind !== "chapter"}
-              onClick={pasteChapterFromClipboard}
+              onClick={() => pasteChapterFromClipboard()}
             >
               粘貼章節
             </button>
@@ -3324,7 +3334,7 @@ function App() {
               </button>
               <button
                 className="ghost-btn"
-                onClick={pasteEntryFromClipboard}
+                onClick={() => pasteEntryFromClipboard()}
                 disabled={!activeProject || clipboard?.kind !== "entry"}
               >
                 粘貼史料
