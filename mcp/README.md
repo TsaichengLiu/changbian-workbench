@@ -30,7 +30,7 @@ npm run mcp:start
     "changbian-workbench": {
       "command": "npm",
       "args": ["run", "mcp:start"],
-      "cwd": "/Users/liuze/Documents/codex用"
+      "cwd": "/path/to/changbian-workbench"
     }
   }
 }
