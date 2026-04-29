@@ -1196,6 +1196,11 @@ function App() {
   }, []);
 
   const hasSearch = Boolean(globalQuery.trim() || normalizeTagInput(selectedTag));
+  const searchHighlightQuery = globalQuery.trim() || normalizeTagInput(selectedTag);
+  const advancedHighlightQuery =
+    advancedModal.query.trim() ||
+    advancedModal.citationTitle.trim() ||
+    normalizeTagInput(advancedModal.tag);
 
   const searchResults = useMemo(() => {
     return filterEntriesByCriteria(workspace, {
@@ -1354,6 +1359,16 @@ function App() {
         contextMenuRef.current.contains(event.target)
       ) {
         return;
+      }
+      if (event.target instanceof Element && !event.target.closest(".entry-card")) {
+        setWorkspace((previous) =>
+          previous.selectedEntryId
+            ? {
+                ...previous,
+                selectedEntryId: null,
+              }
+            : previous,
+        );
       }
       setContextMenu(null);
     }
@@ -3056,7 +3071,7 @@ function App() {
                         dangerouslySetInnerHTML={{
                           __html: renderHighlightedPlainText(
                             `${result.projectTitle} / ${result.chapterTitle}`,
-                            globalQuery,
+                            searchHighlightQuery,
                           ),
                         }}
                       />
@@ -3065,20 +3080,26 @@ function App() {
                         dangerouslySetInnerHTML={{
                           __html: renderHighlightedPlainText(
                             formatEntryHeadline(result.timeText, result.summaryText),
-                            globalQuery,
+                            searchHighlightQuery,
                           ),
                         }}
                       />
                       <div
                         className="search-snippet"
                         dangerouslySetInnerHTML={{
-                          __html: renderHighlightedPlainText(result.snippet || "（無文本）", globalQuery),
+                          __html: renderHighlightedPlainText(
+                            result.snippet || "（無文本）",
+                            searchHighlightQuery,
+                          ),
                         }}
                       />
                       <div
                         className="search-citation"
                         dangerouslySetInnerHTML={{
-                          __html: renderHighlightedPlainText(result.citation || "（無引文註釋）", globalQuery),
+                          __html: renderHighlightedPlainText(
+                            result.citation || "（無引文註釋）",
+                            searchHighlightQuery,
+                          ),
                         }}
                       />
                       {result.tags.length > 0 && (
@@ -3805,7 +3826,7 @@ function App() {
                             dangerouslySetInnerHTML={{
                               __html: renderHighlightedPlainText(
                                 `${result.projectTitle} / ${result.chapterTitle}`,
-                                advancedModal.query,
+                                advancedHighlightQuery,
                               ),
                             }}
                           />
@@ -3814,7 +3835,7 @@ function App() {
                             dangerouslySetInnerHTML={{
                               __html: renderHighlightedPlainText(
                                 formatEntryHeadline(result.timeText, result.summaryText),
-                                advancedModal.query,
+                                advancedHighlightQuery,
                               ),
                             }}
                           />
@@ -3822,7 +3843,10 @@ function App() {
                             <div
                               className="advanced-source rich-markup"
                               dangerouslySetInnerHTML={{
-                                __html: renderHighlightedLightMarkup(entry.sourceText.trim(), advancedModal.query),
+                                __html: renderHighlightedLightMarkup(
+                                  entry.sourceText.trim(),
+                                  advancedHighlightQuery,
+                                ),
                               }}
                             />
                           ) : (
@@ -3833,7 +3857,7 @@ function App() {
                             dangerouslySetInnerHTML={{
                               __html: renderHighlightedPlainText(
                                 entry?.citation.trim() || "（尚未輸入引文註釋）",
-                                advancedModal.query,
+                                advancedHighlightQuery,
                               ),
                             }}
                           />

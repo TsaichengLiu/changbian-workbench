@@ -288,8 +288,8 @@ h3 {
 }
 
 .project-block.active {
-  border-color: rgba(47, 111, 105, 0.55);
-  background: rgba(240, 250, 248, 0.88);
+  border-color: rgba(47, 111, 105, 0.14);
+  background: rgba(255, 255, 255, 0.52);
 }
 
 .project-row,
@@ -317,6 +317,11 @@ h3 {
 
 .project-main:hover,
 .chapter-main:hover {
+  background: rgba(47, 111, 105, 0.08);
+}
+
+.project-block.active .project-main,
+.chapter-row.active .chapter-main {
   background: rgba(47, 111, 105, 0.08);
 }
 
@@ -395,7 +400,7 @@ h3 {
 }
 
 .chapter-row.active {
-  border-color: rgba(47, 111, 105, 0.45);
+  border-color: rgba(46, 64, 69, 0.08);
 }
 
 .drop-target {
@@ -446,15 +451,12 @@ h3 {
 }
 
 .entry-card.selected {
-  border-color: rgba(47, 111, 105, 0.8);
-  background: linear-gradient(160deg, rgba(233, 248, 244, 0.95), rgba(244, 252, 250, 0.88));
-  box-shadow: 0 14px 28px rgba(47, 111, 105, 0.2);
-  outline: 2px solid rgba(47, 111, 105, 0.32);
-  outline-offset: 1px;
+  transform: translateY(-1px);
+  border-color: rgba(47, 111, 105, 0.42);
 }
 
 .entry-card.selected .entry-heading {
-  color: #1c5a55;
+  color: inherit;
 }
 
 .entry-top {
@@ -1182,8 +1184,6 @@ h3 {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.app-shell[data-theme]:not([data-theme="changbian"]) .project-block.active,
-.app-shell[data-theme]:not([data-theme="changbian"]) .chapter-row.active,
 .app-shell[data-theme]:not([data-theme="changbian"]) .entry-card:hover,
 .app-shell[data-theme]:not([data-theme="changbian"]) .search-item:hover,
 .app-shell[data-theme]:not([data-theme="changbian"]) .advanced-result:hover,
@@ -1193,6 +1193,11 @@ h3 {
   outline-color: color-mix(in srgb, var(--accent) 68%, transparent);
 }
 
+.app-shell[data-theme]:not([data-theme="changbian"]) .project-block.active .project-main,
+.app-shell[data-theme]:not([data-theme="changbian"]) .chapter-row.active .chapter-main {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
 .app-shell[data-theme]:not([data-theme="changbian"]) .advanced-scope-item {
   color: var(--ink-0);
   border-color: color-mix(in srgb, var(--accent) 44%, transparent);
@@ -1200,8 +1205,8 @@ h3 {
 }
 
 .app-shell[data-theme]:not([data-theme="changbian"]) .entry-card.selected {
-  border-color: color-mix(in srgb, var(--accent) 78%, transparent);
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 68%, transparent);
+  box-shadow: none;
 }
 
 .app-shell[data-theme]:not([data-theme="changbian"]) .context-menu {
