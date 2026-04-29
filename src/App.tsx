@@ -1270,6 +1270,9 @@ function App() {
     advancedModal.query.trim() ||
     advancedModal.citationTitle.trim() ||
     normalizeTagInput(advancedModal.tag);
+  const centerEntryHighlightQuery = advancedModal.open
+    ? advancedHighlightQuery
+    : searchHighlightQuery;
 
   const searchResults = useMemo(() => {
     return filterEntriesByCriteria(workspace, {
@@ -2997,7 +3000,18 @@ function App() {
                 const entryDragKey = `entry:${entry.id}`;
                 const entryDropKey = `entry:${entry.id}`;
                 const tags = extractTags(entry.note);
-                const notePreview = summarize(entry.note, 120);
+                const headingLabel = formatEntryHeadline(entry.timeText, entry.summary);
+                const sourcePreview = summarizeAroundMatch(
+                  entry.sourceText,
+                  centerEntryHighlightQuery,
+                  200,
+                );
+                const notePreview = summarizeAroundMatch(entry.note, centerEntryHighlightQuery, 120);
+                const citationPreview = summarizeAroundMatch(
+                  entry.citation,
+                  centerEntryHighlightQuery,
+                  90,
+                );
 
                 return (
                   <article
@@ -3008,7 +3022,7 @@ function App() {
                         draft.selectedEntryId = entry.id;
                       });
                     }}
-                    onDoubleClick={() => beginViewEntry(entry.id)}
+                    onDoubleClick={() => beginViewEntry(entry.id, centerEntryHighlightQuery)}
                     onContextMenu={(event) => openEntryContextMenu(event, entry.id)}
                     onDragOver={(event) => {
                       if (dragPayload?.type !== "entry") {
@@ -3048,9 +3062,12 @@ function App() {
                         ⋮⋮
                       </span>
 
-                      <h3 className="entry-heading">
-                        {formatEntryHeadline(entry.timeText, entry.summary)}
-                      </h3>
+                      <h3
+                        className="entry-heading"
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedPlainText(headingLabel, centerEntryHighlightQuery),
+                        }}
+                      />
 
                       <div className="entry-actions">
                         <button
@@ -3066,7 +3083,7 @@ function App() {
                           className="icon-btn"
                           onClick={(event) => {
                             event.stopPropagation();
-                            beginViewEntry(entry.id);
+                            beginViewEntry(entry.id, centerEntryHighlightQuery);
                           }}
                         >
                           檢視
@@ -3075,7 +3092,7 @@ function App() {
                           className="icon-btn"
                           onClick={(event) => {
                             event.stopPropagation();
-                            beginEditEntry(entry.id);
+                            beginEditEntry(entry.id, centerEntryHighlightQuery);
                           }}
                         >
                           編輯
@@ -3086,13 +3103,34 @@ function App() {
                     {entry.sourceText.trim() ? (
                       <p
                         className="entry-snippet rich-markup clamp-4"
-                        dangerouslySetInnerHTML={{ __html: renderLightMarkup(entry.sourceText.trim()) }}
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedLightMarkup(
+                            sourcePreview || entry.sourceText.trim(),
+                            centerEntryHighlightQuery,
+                          ),
+                        }}
                       />
                     ) : (
                       <p className="entry-snippet">（尚未輸入史料文本）</p>
                     )}
-                    <p className="entry-note-preview">{notePreview || "（尚未輸入備註）"}</p>
-                    <p className="entry-citation">{summarize(entry.citation, 90) || "（尚未輸入引文註釋）"}</p>
+                    <p
+                      className="entry-note-preview"
+                      dangerouslySetInnerHTML={{
+                        __html: renderHighlightedPlainText(
+                          notePreview || "（尚未輸入備註）",
+                          centerEntryHighlightQuery,
+                        ),
+                      }}
+                    />
+                    <p
+                      className="entry-citation"
+                      dangerouslySetInnerHTML={{
+                        __html: renderHighlightedPlainText(
+                          citationPreview || "（尚未輸入引文註釋）",
+                          centerEntryHighlightQuery,
+                        ),
+                      }}
+                    />
                     {tags.length > 0 && (
                       <div className="tag-row">
                         {tags.map((tag) => (
@@ -3372,7 +3410,7 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
-                  beginViewEntry(contextMenu.entryId);
+                  beginViewEntry(contextMenu.entryId, centerEntryHighlightQuery);
                   setContextMenu(null);
                 }}
               >
@@ -3381,7 +3419,7 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
-                  beginEditEntry(contextMenu.entryId);
+                  beginEditEntry(contextMenu.entryId, centerEntryHighlightQuery);
                   setContextMenu(null);
                 }}
               >
