@@ -29,6 +29,30 @@ const MENU_CARD_OPTIONS = [
   { id: "frosted", label: "金屬" },
 ];
 
+function writeJsonAtomic(filePath, payload) {
+  const serialized = JSON.stringify(payload, null, 2);
+  const content = typeof serialized === "string" ? serialized : "null";
+  const directory = path.dirname(filePath);
+  const tempName = `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  const tempPath = path.join(directory, tempName);
+
+  fs.mkdirSync(directory, { recursive: true });
+  try {
+    fs.writeFileSync(tempPath, content, "utf8");
+    fs.renameSync(tempPath, filePath);
+    return true;
+  } catch {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.rmSync(tempPath, { force: true });
+      }
+    } catch {
+      // Ignore temp cleanup failures.
+    }
+    return false;
+  }
+}
+
 function loadSettings() {
   try {
     if (!fs.existsSync(SETTINGS_FILE)) {
@@ -46,13 +70,7 @@ function loadSettings() {
 }
 
 function saveSettings(settings) {
-  try {
-    fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf8");
-    return true;
-  } catch {
-    return false;
-  }
+  return writeJsonAtomic(SETTINGS_FILE, settings);
 }
 
 function sanitizeAppearance(raw, fallback = DEFAULT_APPEARANCE) {
@@ -137,16 +155,14 @@ function loadSharedWorkspace() {
 }
 
 function saveSharedWorkspace(workspace) {
-  try {
-    fs.mkdirSync(path.dirname(sharedWorkspaceFile), { recursive: true });
-    fs.writeFileSync(sharedWorkspaceFile, JSON.stringify(workspace, null, 2), "utf8");
-    if (workspace && typeof workspace === "object") {
-      searchIndexService.scheduleRebuild(workspace);
-    }
-    return true;
-  } catch {
+  const saved = writeJsonAtomic(sharedWorkspaceFile, workspace);
+  if (!saved) {
     return false;
   }
+  if (workspace && typeof workspace === "object") {
+    searchIndexService.syncWorkspace(workspace);
+  }
+  return true;
 }
 
 function setSharedWorkspacePath(nextPath, workspace) {
@@ -329,7 +345,7 @@ app.whenReady().then(() => {
   setApplicationMenu();
   const workspace = loadSharedWorkspace();
   if (workspace && typeof workspace === "object") {
-    searchIndexService.scheduleRebuild(workspace);
+    searchIndexService.syncWorkspace(workspace);
   }
   createWindow();
 

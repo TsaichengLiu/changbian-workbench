@@ -5,6 +5,7 @@ const TAG_REGEX = /#([^\s#，。；、,.;:!?！？【】（）()<>《》]+)/g;
 const CITATION_TITLE_REGEX = /《([^》\n\r]+)》/g;
 const SEARCH_REBUILD_DEBOUNCE_MS = 900;
 const SEARCH_LIMIT_DEFAULT = 600;
+const INCREMENTAL_REBUILD_THRESHOLD = 2400;
 
 const ALL_SCOPES = ["project", "chapter", "time", "summary", "source", "note", "citation"];
 
@@ -155,63 +156,150 @@ function resolveSearchDbPath(workspaceFilePath) {
   return path.join(parsed.dir, `${parsed.name}.fts5.sqlite`);
 }
 
-function iterateWorkspaceEntries(workspace) {
-  const rows = [];
-  if (!workspace || typeof workspace !== "object") {
-    return rows;
-  }
-  const projectOrder = Array.isArray(workspace.projectOrder) ? workspace.projectOrder : [];
-  const projects = workspace.projects && typeof workspace.projects === "object" ? workspace.projects : {};
-  const chapters = workspace.chapters && typeof workspace.chapters === "object" ? workspace.chapters : {};
-  const entries = workspace.entries && typeof workspace.entries === "object" ? workspace.entries : {};
+function getWorkspaceBucket(workspace, key) {
+  const bucket = workspace && typeof workspace === "object" ? workspace[key] : null;
+  return bucket && typeof bucket === "object" ? bucket : {};
+}
 
-  for (const projectId of projectOrder) {
+function buildEntrySignature(entry) {
+  return JSON.stringify([
+    typeof entry.id === "string" ? entry.id : "",
+    typeof entry.projectId === "string" ? entry.projectId : "",
+    typeof entry.chapterId === "string" ? entry.chapterId : "",
+    typeof entry.timeText === "string" ? entry.timeText : "",
+    typeof entry.summary === "string" ? entry.summary : "",
+    typeof entry.sourceText === "string" ? entry.sourceText : "",
+    typeof entry.note === "string" ? entry.note : "",
+    typeof entry.citation === "string" ? entry.citation : "",
+  ]);
+}
+
+function resolveEntryContext(workspace, entryId) {
+  const entries = getWorkspaceBucket(workspace, "entries");
+  const projects = getWorkspaceBucket(workspace, "projects");
+  const chapters = getWorkspaceBucket(workspace, "chapters");
+
+  const rawEntry = entries[entryId];
+  if (!rawEntry || typeof rawEntry !== "object") {
+    return null;
+  }
+
+  const projectId = typeof rawEntry.projectId === "string" ? rawEntry.projectId : "";
+  const project = projects[projectId];
+  if (!project || typeof project !== "object") {
+    return null;
+  }
+
+  const rawChapterId = typeof rawEntry.chapterId === "string" ? rawEntry.chapterId : "";
+  const chapter = rawChapterId ? chapters[rawChapterId] : null;
+  const chapterValid = Boolean(chapter && chapter.projectId === projectId);
+
+  return {
+    entryId: typeof rawEntry.id === "string" ? rawEntry.id : entryId,
+    projectId,
+    chapterId: chapterValid ? rawChapterId : "",
+    projectTitle: typeof project.title === "string" ? project.title : "",
+    chapterTitle: chapterValid && typeof chapter.title === "string" ? chapter.title : "未分章",
+    timeText: typeof rawEntry.timeText === "string" ? rawEntry.timeText : "",
+    summaryText: typeof rawEntry.summary === "string" ? rawEntry.summary : "",
+    sourceText: typeof rawEntry.sourceText === "string" ? rawEntry.sourceText : "",
+    noteText: typeof rawEntry.note === "string" ? rawEntry.note : "",
+    citationText: typeof rawEntry.citation === "string" ? rawEntry.citation : "",
+  };
+}
+
+function buildEntryIndexPayload(context) {
+  const tags = extractTags(context.noteText);
+  const citationTitles = extractCitationTitles(context.citationText);
+  const citationTitleVariants = citationTitles.flatMap((title) => buildVariants(title));
+
+  return {
+    entryId: context.entryId,
+    projectId: context.projectId,
+    chapterId: context.chapterId,
+    projectTitle: context.projectTitle,
+    chapterTitle: context.chapterTitle,
+    timeText: context.timeText,
+    summaryText: context.summaryText,
+    snippet: summarizeText(context.sourceText, 120),
+    citationPreview: summarizeText(context.citationText, 80),
+    tagsToken: buildTagsToken(tags),
+    citationTitlesVariants: joinVariants(citationTitleVariants),
+    projectVariants: joinVariants(context.projectTitle),
+    chapterVariants: joinVariants(context.chapterTitle),
+    timeVariants: joinVariants(context.timeText),
+    summaryVariants: joinVariants(context.summaryText),
+    sourceVariants: joinVariants(context.sourceText),
+    noteVariants: joinVariants(context.noteText),
+    citationVariants: joinVariants(context.citationText),
+  };
+}
+
+function iterateWorkspaceEntryIds(workspace) {
+  const entries = getWorkspaceBucket(workspace, "entries");
+  const ids = [];
+  for (const key of Object.keys(entries)) {
+    const entry = entries[key];
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const entryId = typeof entry.id === "string" ? entry.id : key;
+    if (!entryId) {
+      continue;
+    }
+    ids.push(entryId);
+  }
+  return ids;
+}
+
+function buildWorkspaceSnapshot(workspace) {
+  const entries = getWorkspaceBucket(workspace, "entries");
+  const projects = getWorkspaceBucket(workspace, "projects");
+  const chapters = getWorkspaceBucket(workspace, "chapters");
+
+  const entrySignatures = new Map();
+  const entryProjectIds = new Map();
+  const entryChapterIds = new Map();
+
+  for (const key of Object.keys(entries)) {
+    const entry = entries[key];
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const entryId = typeof entry.id === "string" ? entry.id : key;
+    if (!entryId) {
+      continue;
+    }
+    entrySignatures.set(entryId, buildEntrySignature(entry));
+    entryProjectIds.set(entryId, typeof entry.projectId === "string" ? entry.projectId : "");
+    entryChapterIds.set(entryId, typeof entry.chapterId === "string" ? entry.chapterId : "");
+  }
+
+  const projectTitles = new Map();
+  for (const projectId of Object.keys(projects)) {
     const project = projects[projectId];
     if (!project || typeof project !== "object") {
       continue;
     }
-
-    const projectTitle = typeof project.title === "string" ? project.title : "";
-    const directEntryIds = Array.isArray(project.entryIds) ? project.entryIds : [];
-    for (const entryId of directEntryIds) {
-      const entry = entries[entryId];
-      if (!entry || typeof entry !== "object") {
-        continue;
-      }
-      rows.push({
-        entry,
-        project,
-        projectTitle,
-        chapterId: null,
-        chapterTitle: "未分章",
-      });
-    }
-
-    const chapterIds = Array.isArray(project.chapterIds) ? project.chapterIds : [];
-    for (const chapterId of chapterIds) {
-      const chapter = chapters[chapterId];
-      if (!chapter || typeof chapter !== "object") {
-        continue;
-      }
-      const chapterTitle = typeof chapter.title === "string" ? chapter.title : "";
-      const chapterEntryIds = Array.isArray(chapter.entryIds) ? chapter.entryIds : [];
-      for (const entryId of chapterEntryIds) {
-        const entry = entries[entryId];
-        if (!entry || typeof entry !== "object") {
-          continue;
-        }
-        rows.push({
-          entry,
-          project,
-          projectTitle,
-          chapterId,
-          chapterTitle,
-        });
-      }
-    }
+    projectTitles.set(projectId, typeof project.title === "string" ? project.title : "");
   }
 
-  return rows;
+  const chapterTitles = new Map();
+  for (const chapterId of Object.keys(chapters)) {
+    const chapter = chapters[chapterId];
+    if (!chapter || typeof chapter !== "object") {
+      continue;
+    }
+    chapterTitles.set(chapterId, typeof chapter.title === "string" ? chapter.title : "");
+  }
+
+  return {
+    entrySignatures,
+    entryProjectIds,
+    entryChapterIds,
+    projectTitles,
+    chapterTitles,
+  };
 }
 
 class SearchIndexService {
@@ -227,6 +315,14 @@ class SearchIndexService {
     this.rebuildTimer = null;
     this.pendingWorkspace = null;
     this.schemaInitialized = false;
+    this.statements = null;
+
+    this.entrySignatures = new Map();
+    this.entryProjectIds = new Map();
+    this.entryChapterIds = new Map();
+    this.projectTitles = new Map();
+    this.chapterTitles = new Map();
+    this.workspaceSnapshotReady = false;
   }
 
   getStatus() {
@@ -263,6 +359,8 @@ class SearchIndexService {
       this.db.pragma("journal_mode = WAL");
       this.db.pragma("synchronous = NORMAL");
       this.initSchema();
+      this.prepareStatements();
+      this.rowCount = this.getMappedRowCount();
       this.ready = true;
       this.lastError = "";
       return true;
@@ -289,6 +387,26 @@ class SearchIndexService {
     this.db = null;
     this.ready = false;
     this.schemaInitialized = false;
+    this.statements = null;
+    this.resetWorkspaceSnapshot();
+  }
+
+  resetWorkspaceSnapshot() {
+    this.entrySignatures = new Map();
+    this.entryProjectIds = new Map();
+    this.entryChapterIds = new Map();
+    this.projectTitles = new Map();
+    this.chapterTitles = new Map();
+    this.workspaceSnapshotReady = false;
+  }
+
+  applyWorkspaceSnapshot(snapshot) {
+    this.entrySignatures = snapshot.entrySignatures;
+    this.entryProjectIds = snapshot.entryProjectIds;
+    this.entryChapterIds = snapshot.entryChapterIds;
+    this.projectTitles = snapshot.projectTitles;
+    this.chapterTitles = snapshot.chapterTitles;
+    this.workspaceSnapshotReady = true;
   }
 
   initSchema() {
@@ -322,7 +440,67 @@ class SearchIndexService {
       );
     `);
 
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS entry_row_map (
+        entry_id TEXT PRIMARY KEY,
+        rowid INTEGER NOT NULL
+      );
+    `);
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_entry_row_map_rowid ON entry_row_map(rowid);
+    `);
+
     this.schemaInitialized = true;
+  }
+
+  prepareStatements() {
+    if (!this.db || this.statements) {
+      return;
+    }
+
+    this.statements = {
+      insertFts: this.db.prepare(`
+        INSERT INTO entries_fts (
+          entry_id,
+          project_id,
+          chapter_id,
+          project_title,
+          chapter_title,
+          time_text,
+          summary_text,
+          snippet,
+          citation_preview,
+          tags_token,
+          citation_titles_variants,
+          project_variants,
+          chapter_variants,
+          time_variants,
+          summary_variants,
+          source_variants,
+          note_variants,
+          citation_variants
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `),
+      deleteFtsByRowid: this.db.prepare(`DELETE FROM entries_fts WHERE rowid = ?`),
+      deleteFtsByEntryId: this.db.prepare(`DELETE FROM entries_fts WHERE entry_id = ?`),
+      selectRowMap: this.db.prepare(`SELECT rowid FROM entry_row_map WHERE entry_id = ?`),
+      upsertRowMap: this.db.prepare(`
+        INSERT INTO entry_row_map (entry_id, rowid)
+        VALUES (?, ?)
+        ON CONFLICT(entry_id) DO UPDATE SET rowid = excluded.rowid
+      `),
+      deleteRowMap: this.db.prepare(`DELETE FROM entry_row_map WHERE entry_id = ?`),
+      clearRowMap: this.db.prepare(`DELETE FROM entry_row_map`),
+      countRowMap: this.db.prepare(`SELECT COUNT(*) AS count FROM entry_row_map`),
+    };
+  }
+
+  getMappedRowCount() {
+    if (!this.statements) {
+      return 0;
+    }
+    const row = this.statements.countRowMap.get();
+    return Number(row?.count ?? 0);
   }
 
   invalidate() {
@@ -360,85 +538,179 @@ class SearchIndexService {
     this.rebuild(nextWorkspace);
   }
 
+  deleteEntryRow(entryId) {
+    if (!this.statements) {
+      return;
+    }
+
+    const existing = this.statements.selectRowMap.get(entryId);
+    if (existing && Number.isFinite(existing.rowid)) {
+      this.statements.deleteFtsByRowid.run(existing.rowid);
+      this.statements.deleteRowMap.run(entryId);
+      return;
+    }
+
+    this.statements.deleteFtsByEntryId.run(entryId);
+    this.statements.deleteRowMap.run(entryId);
+  }
+
+  upsertEntryRowFromWorkspace(workspace, entryId) {
+    if (!this.statements) {
+      return;
+    }
+
+    this.deleteEntryRow(entryId);
+
+    const context = resolveEntryContext(workspace, entryId);
+    if (!context) {
+      return;
+    }
+
+    const payload = buildEntryIndexPayload(context);
+    const result = this.statements.insertFts.run(
+      payload.entryId,
+      payload.projectId,
+      payload.chapterId,
+      payload.projectTitle,
+      payload.chapterTitle,
+      payload.timeText,
+      payload.summaryText,
+      payload.snippet,
+      payload.citationPreview,
+      payload.tagsToken,
+      payload.citationTitlesVariants,
+      payload.projectVariants,
+      payload.chapterVariants,
+      payload.timeVariants,
+      payload.summaryVariants,
+      payload.sourceVariants,
+      payload.noteVariants,
+      payload.citationVariants,
+    );
+
+    const rowid = Number(result.lastInsertRowid);
+    this.statements.upsertRowMap.run(payload.entryId, rowid);
+  }
+
   rebuild(workspace) {
     if (!this.enabled) {
       return false;
     }
-    if (!this.ensureDb()) {
+    if (!this.ensureDb() || !this.db || !this.statements) {
       return false;
     }
 
     try {
-      const rows = iterateWorkspaceEntries(workspace);
-      const insert = this.db.prepare(`
-        INSERT INTO entries_fts (
-          entry_id,
-          project_id,
-          chapter_id,
-          project_title,
-          chapter_title,
-          time_text,
-          summary_text,
-          snippet,
-          citation_preview,
-          tags_token,
-          citation_titles_variants,
-          project_variants,
-          chapter_variants,
-          time_variants,
-          summary_variants,
-          source_variants,
-          note_variants,
-          citation_variants
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
+      const entryIds = iterateWorkspaceEntryIds(workspace);
       const transaction = this.db.transaction(() => {
         this.db.exec("DELETE FROM entries_fts;");
-        for (const row of rows) {
-          const entry = row.entry;
-          const projectTitle = row.projectTitle || "";
-          const chapterTitle = row.chapterTitle || "";
-          const timeText = typeof entry.timeText === "string" ? entry.timeText : "";
-          const summaryText = typeof entry.summary === "string" ? entry.summary : "";
-          const sourceText = typeof entry.sourceText === "string" ? entry.sourceText : "";
-          const noteText = typeof entry.note === "string" ? entry.note : "";
-          const citationText = typeof entry.citation === "string" ? entry.citation : "";
-          const tags = extractTags(noteText);
-          const citationTitles = extractCitationTitles(citationText);
-          const citationTitleVariants = citationTitles.flatMap((title) => buildVariants(title));
+        this.statements.clearRowMap.run();
 
-          insert.run(
-            entry.id,
-            row.project.id,
-            row.chapterId || "",
-            projectTitle,
-            chapterTitle,
-            timeText,
-            summaryText,
-            summarizeText(sourceText, 120),
-            summarizeText(citationText, 80),
-            buildTagsToken(tags),
-            joinVariants(citationTitleVariants),
-            joinVariants(projectTitle),
-            joinVariants(chapterTitle),
-            joinVariants(timeText),
-            joinVariants(summaryText),
-            joinVariants(sourceText),
-            joinVariants(noteText),
-            joinVariants(citationText),
-          );
+        for (const entryId of entryIds) {
+          this.upsertEntryRowFromWorkspace(workspace, entryId);
         }
       });
 
       transaction();
       this.lastIndexedAt = Date.now();
-      this.rowCount = rows.length;
+      this.rowCount = this.getMappedRowCount();
       this.ready = true;
       this.lastError = "";
+      this.applyWorkspaceSnapshot(buildWorkspaceSnapshot(workspace));
       return true;
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : "重建索引失敗";
+      this.ready = false;
+      return false;
+    }
+  }
+
+  syncWorkspace(workspace) {
+    if (!this.enabled) {
+      return false;
+    }
+    if (!this.ensureDb() || !this.db || !this.statements) {
+      return false;
+    }
+
+    if (!workspace || typeof workspace !== "object") {
+      return false;
+    }
+
+    const nextSnapshot = buildWorkspaceSnapshot(workspace);
+
+    if (!this.workspaceSnapshotReady) {
+      return this.rebuild(workspace);
+    }
+
+    const removedEntryIds = [];
+    for (const entryId of this.entrySignatures.keys()) {
+      if (!nextSnapshot.entrySignatures.has(entryId)) {
+        removedEntryIds.push(entryId);
+      }
+    }
+
+    const renamedProjectIds = new Set();
+    for (const [projectId, title] of nextSnapshot.projectTitles.entries()) {
+      if (this.projectTitles.has(projectId) && this.projectTitles.get(projectId) !== title) {
+        renamedProjectIds.add(projectId);
+      }
+    }
+
+    const renamedChapterIds = new Set();
+    for (const [chapterId, title] of nextSnapshot.chapterTitles.entries()) {
+      if (this.chapterTitles.has(chapterId) && this.chapterTitles.get(chapterId) !== title) {
+        renamedChapterIds.add(chapterId);
+      }
+    }
+
+    const upsertEntrySet = new Set();
+    for (const [entryId, signature] of nextSnapshot.entrySignatures.entries()) {
+      const prevSignature = this.entrySignatures.get(entryId);
+      if (!prevSignature || prevSignature !== signature) {
+        upsertEntrySet.add(entryId);
+        continue;
+      }
+
+      const projectId = nextSnapshot.entryProjectIds.get(entryId);
+      const chapterId = nextSnapshot.entryChapterIds.get(entryId);
+      if ((projectId && renamedProjectIds.has(projectId)) || (chapterId && renamedChapterIds.has(chapterId))) {
+        upsertEntrySet.add(entryId);
+      }
+    }
+
+    const changesCount = removedEntryIds.length + upsertEntrySet.size;
+    if (changesCount === 0) {
+      this.applyWorkspaceSnapshot(nextSnapshot);
+      this.ready = true;
+      this.lastError = "";
+      return true;
+    }
+
+    if (changesCount >= INCREMENTAL_REBUILD_THRESHOLD) {
+      return this.rebuild(workspace);
+    }
+
+    try {
+      const upsertEntryIds = [...upsertEntrySet];
+      const transaction = this.db.transaction(() => {
+        for (const entryId of removedEntryIds) {
+          this.deleteEntryRow(entryId);
+        }
+        for (const entryId of upsertEntryIds) {
+          this.upsertEntryRowFromWorkspace(workspace, entryId);
+        }
+      });
+
+      transaction();
+      this.lastIndexedAt = Date.now();
+      this.rowCount = this.getMappedRowCount();
+      this.ready = true;
+      this.lastError = "";
+      this.applyWorkspaceSnapshot(nextSnapshot);
+      return true;
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : "增量索引更新失敗";
       this.ready = false;
       return false;
     }

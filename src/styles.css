@@ -445,6 +445,10 @@ h3 {
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+.entry-card.virtualized-row {
+  min-height: 238px;
+}
+
 .entry-card:hover {
   transform: translateY(-1px);
   border-color: rgba(47, 111, 105, 0.42);
@@ -664,6 +668,10 @@ h3 {
   gap: 5px;
 }
 
+.search-item.virtualized-row {
+  min-height: 162px;
+}
+
 .search-item:hover {
   border-color: rgba(47, 111, 105, 0.5);
   background: #f2fbf9;
@@ -843,6 +851,11 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.entry-view-time-meta {
+  font-size: 12px;
+  opacity: 0.9;
 }
 
 .entry-view-block {
@@ -1066,6 +1079,10 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.advanced-result.virtualized-row {
+  min-height: 208px;
 }
 
 .advanced-result:hover {

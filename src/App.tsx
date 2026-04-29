@@ -3,6 +3,7 @@ import {
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
+  type RefObject,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -889,6 +890,17 @@ function formatEntryHeadline(timeText: string, summaryText: string): string {
   return summaryLabel ? `${timeLabel}｜${summaryLabel}` : timeLabel;
 }
 
+function formatDateTimeLabel(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "未記錄";
+  }
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return "未記錄";
+  }
+  return date.toLocaleString("zh-Hant-TW", { hour12: false });
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -1066,7 +1078,10 @@ function filterEntriesByCriteria(workspace: WorkspaceData, criteria: EntryFilter
 }
 
 const SEARCH_DEBOUNCE_MS = 160;
-const SEARCH_RESULT_BATCH = 120;
+const ENTRY_VIRTUAL_ROW_HEIGHT = 256;
+const SEARCH_RESULT_VIRTUAL_ROW_HEIGHT = 188;
+const ADVANCED_RESULT_VIRTUAL_ROW_HEIGHT = 236;
+const VIRTUAL_OVERSCAN_COUNT = 6;
 
 type SearchWorkerChannel = "global" | "advanced";
 
@@ -1098,6 +1113,66 @@ function useDebouncedValue<T>(value: T, delay = SEARCH_DEBOUNCE_MS): T {
   return debounced;
 }
 
+function useContainerHeight(ref: RefObject<HTMLElement | null>): number {
+  const [height, setHeight] = useState(0);
+  const element = ref.current;
+
+  useEffect(() => {
+    if (!element) {
+      setHeight(0);
+      return;
+    }
+
+    const update = () => setHeight(element.clientHeight);
+    update();
+
+    const observer =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            update();
+          })
+        : null;
+    observer?.observe(element);
+    window.addEventListener("resize", update);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [element]);
+
+  return height;
+}
+
+interface VirtualRange {
+  start: number;
+  end: number;
+  topSpacer: number;
+  bottomSpacer: number;
+}
+
+function computeVirtualRange(
+  totalCount: number,
+  rowHeight: number,
+  scrollTop: number,
+  viewportHeight: number,
+  overscan = VIRTUAL_OVERSCAN_COUNT,
+): VirtualRange {
+  if (totalCount <= 0 || rowHeight <= 0) {
+    return { start: 0, end: 0, topSpacer: 0, bottomSpacer: 0 };
+  }
+
+  const safeScrollTop = Math.max(0, scrollTop);
+  const safeViewport = Math.max(1, viewportHeight);
+  const visibleCount = Math.ceil(safeViewport / rowHeight);
+  const maxStart = Math.max(0, totalCount - visibleCount);
+  const start = Math.min(maxStart, Math.max(0, Math.floor(safeScrollTop / rowHeight) - overscan));
+  const end = Math.min(totalCount, start + visibleCount + overscan * 2);
+  const topSpacer = start * rowHeight;
+  const bottomSpacer = Math.max(0, (totalCount - end) * rowHeight);
+  return { start, end, topSpacer, bottomSpacer };
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceData>(() => loadWorkspace());
   const [appearance, setAppearance] = useState<AppearanceState>(() => loadAppearance());
@@ -1108,8 +1183,9 @@ function App() {
   const [selectedTag, setSelectedTag] = useState<string>("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [advancedResults, setAdvancedResults] = useState<SearchResult[]>([]);
-  const [searchRenderLimit, setSearchRenderLimit] = useState(SEARCH_RESULT_BATCH);
-  const [advancedRenderLimit, setAdvancedRenderLimit] = useState(SEARCH_RESULT_BATCH);
+  const [entryListScrollTop, setEntryListScrollTop] = useState(0);
+  const [searchResultsScrollTop, setSearchResultsScrollTop] = useState(0);
+  const [advancedResultsScrollTop, setAdvancedResultsScrollTop] = useState(0);
   const [entryHighlightContext, setEntryHighlightContext] = useState<{
     entryId: string;
     query: string;
@@ -1334,32 +1410,58 @@ function App() {
       deferredAdvancedCitationTitle.trim(),
   );
   const hasAdvancedQueryScope = deferredAdvancedQueryScopes.length > 0;
+  const entryListViewportHeight = useContainerHeight(centerPaneScrollRef);
+  const searchResultsViewportHeight = useContainerHeight(searchResultsRef);
+  const advancedResultsViewportHeight = useContainerHeight(advancedResultsRef);
+
+  const entryVirtualRange = useMemo(
+    () =>
+      computeVirtualRange(
+        currentEntries.length,
+        ENTRY_VIRTUAL_ROW_HEIGHT,
+        entryListScrollTop,
+        entryListViewportHeight,
+      ),
+    [currentEntries.length, entryListScrollTop, entryListViewportHeight],
+  );
+  const visibleEntries = useMemo(
+    () => currentEntries.slice(entryVirtualRange.start, entryVirtualRange.end),
+    [currentEntries, entryVirtualRange.end, entryVirtualRange.start],
+  );
+
+  const searchVirtualRange = useMemo(
+    () =>
+      computeVirtualRange(
+        searchResults.length,
+        SEARCH_RESULT_VIRTUAL_ROW_HEIGHT,
+        searchResultsScrollTop,
+        searchResultsViewportHeight,
+      ),
+    [searchResults.length, searchResultsScrollTop, searchResultsViewportHeight],
+  );
   const visibleSearchResults = useMemo(
-    () => searchResults.slice(0, Math.max(searchRenderLimit, SEARCH_RESULT_BATCH)),
-    [searchRenderLimit, searchResults],
+    () => searchResults.slice(searchVirtualRange.start, searchVirtualRange.end),
+    [searchResults, searchVirtualRange.end, searchVirtualRange.start],
+  );
+
+  const advancedVirtualRange = useMemo(
+    () =>
+      computeVirtualRange(
+        advancedResults.length,
+        ADVANCED_RESULT_VIRTUAL_ROW_HEIGHT,
+        advancedResultsScrollTop,
+        advancedResultsViewportHeight,
+      ),
+    [
+      advancedResults.length,
+      advancedResultsScrollTop,
+      advancedResultsViewportHeight,
+    ],
   );
   const visibleAdvancedResults = useMemo(
-    () => advancedResults.slice(0, Math.max(advancedRenderLimit, SEARCH_RESULT_BATCH)),
-    [advancedRenderLimit, advancedResults],
+    () => advancedResults.slice(advancedVirtualRange.start, advancedVirtualRange.end),
+    [advancedResults, advancedVirtualRange.end, advancedVirtualRange.start],
   );
-
-  function loadMoreSearchResults(): void {
-    setSearchRenderLimit((current) => {
-      if (current >= searchResults.length) {
-        return current;
-      }
-      return Math.min(searchResults.length, current + SEARCH_RESULT_BATCH);
-    });
-  }
-
-  function loadMoreAdvancedResults(): void {
-    setAdvancedRenderLimit((current) => {
-      if (current >= advancedResults.length) {
-        return current;
-      }
-      return Math.min(advancedResults.length, current + SEARCH_RESULT_BATCH);
-    });
-  }
 
   async function queryBySqlite(criteria: SearchCriteria): Promise<SearchResult[] | null> {
     if (!window.searchBridge?.query) {
@@ -1432,8 +1534,6 @@ function App() {
   }, [searchIndex]);
 
   useEffect(() => {
-    setSearchRenderLimit(SEARCH_RESULT_BATCH);
-
     const criteria: SearchCriteria = {
       query: deferredGlobalQuery,
       tag: deferredSelectedTag,
@@ -1484,8 +1584,6 @@ function App() {
   }, [deferredGlobalQuery, deferredSelectedTag, searchIndex, startSearchTransition]);
 
   useEffect(() => {
-    setAdvancedRenderLimit(SEARCH_RESULT_BATCH);
-
     const criteria: SearchCriteria = {
       query: deferredAdvancedQuery,
       queryScopes: deferredAdvancedQueryScopes,
@@ -3234,7 +3332,11 @@ function App() {
             </div>
           </header>
 
-          <section ref={centerPaneScrollRef} className="entry-list">
+          <section
+            ref={centerPaneScrollRef}
+            className="entry-list"
+            onScroll={(event) => setEntryListScrollTop(event.currentTarget.scrollTop)}
+          >
             {currentEntries.length === 0 ? (
               <div className="empty-state">
                 <h3>尚無史料</h3>
@@ -3244,7 +3346,9 @@ function App() {
                 </button>
               </div>
             ) : (
-              currentEntries.map((entry) => {
+              <>
+                <div style={{ height: `${entryVirtualRange.topSpacer}px` }} />
+                {visibleEntries.map((entry) => {
                 const isSelected = selectedEntry?.id === entry.id;
                 const entryDragKey = `entry:${entry.id}`;
                 const entryDropKey = `entry:${entry.id}`;
@@ -3265,7 +3369,7 @@ function App() {
                 return (
                   <article
                     key={entry.id}
-                    className={`entry-card ${isSelected ? "selected" : ""} ${dropTargetKey === entryDropKey ? "drop-target" : ""}`}
+                    className={`entry-card virtualized-row ${isSelected ? "selected" : ""} ${dropTargetKey === entryDropKey ? "drop-target" : ""}`}
                     onClick={() => {
                       mutateWorkspace((draft) => {
                         draft.selectedEntryId = entry.id;
@@ -3391,7 +3495,9 @@ function App() {
                     )}
                   </article>
                 );
-              })
+                })}
+                <div style={{ height: `${entryVirtualRange.bottomSpacer}px` }} />
+              </>
             )}
           </section>
         </main>
@@ -3430,12 +3536,7 @@ function App() {
             <div
               ref={searchResultsRef}
               className="search-results"
-              onScroll={(event) => {
-                const element = event.currentTarget;
-                if (element.scrollTop + element.clientHeight >= element.scrollHeight - 72) {
-                  loadMoreSearchResults();
-                }
-              }}
+              onScroll={(event) => setSearchResultsScrollTop(event.currentTarget.scrollTop)}
             >
               <p className="result-meta">
                 {hasSearch ? `共 ${searchResults.length} 條結果` : "請輸入關鍵詞或選擇標籤開始檢索"}
@@ -3445,7 +3546,9 @@ function App() {
                 searchResults.length === 0 ? (
                   <p className="empty-inline">未檢索到符合內容。</p>
                 ) : (
-                  visibleSearchResults.map((result) => {
+                  <>
+                    <div style={{ height: `${searchVirtualRange.topSpacer}px` }} />
+                    {visibleSearchResults.map((result) => {
                     const entry = workspace.entries[result.entryId];
                     const sourcePreview = summarizeAroundMatch(
                       entry?.sourceText ?? result.snippet,
@@ -3461,7 +3564,7 @@ function App() {
                     return (
                       <button
                         key={result.entryId}
-                        className="search-item"
+                        className="search-item virtualized-row"
                         onClick={() => jumpToSearchResult(result, searchHighlightQuery)}
                         onDoubleClick={() => {
                           jumpToSearchResult(result, searchHighlightQuery);
@@ -3515,15 +3618,12 @@ function App() {
                         )}
                       </button>
                     );
-                  })
+                    })}
+                    <div style={{ height: `${searchVirtualRange.bottomSpacer}px` }} />
+                  </>
                 )
               ) : (
                 <p className="empty-inline">檢索後可點結果跳轉到對應史料。</p>
-              )}
-              {searchResults.length > visibleSearchResults.length && (
-                <button className="ghost-btn" onClick={loadMoreSearchResults}>
-                  載入更多（{visibleSearchResults.length}/{searchResults.length}）
-                </button>
               )}
             </div>
           </section>
@@ -3862,6 +3962,10 @@ function App() {
                   {viewedEntry.chapterId
                     ? workspace.chapters[viewedEntry.chapterId]?.title || "未分章"
                     : "未分章"}
+                </p>
+                <p className="meta-text entry-view-time-meta">
+                  建立：{formatDateTimeLabel(viewedEntry.createdAt)} ｜ 修改：
+                  {formatDateTimeLabel(viewedEntry.updatedAt)}
                 </p>
               </div>
               <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
@@ -4253,12 +4357,7 @@ function App() {
               <div
                 ref={advancedResultsRef}
                 className="advanced-results"
-                onScroll={(event) => {
-                  const element = event.currentTarget;
-                  if (element.scrollTop + element.clientHeight >= element.scrollHeight - 72) {
-                    loadMoreAdvancedResults();
-                  }
-                }}
+                onScroll={(event) => setAdvancedResultsScrollTop(event.currentTarget.scrollTop)}
               >
                 {hasAdvancedSearch ? (
                   deferredAdvancedQuery.trim() && !hasAdvancedQueryScope ? (
@@ -4266,12 +4365,14 @@ function App() {
                   ) : advancedResults.length === 0 ? (
                     <p className="empty-inline">未檢索到符合內容。</p>
                   ) : (
-                    visibleAdvancedResults.map((result) => {
+                    <>
+                      <div style={{ height: `${advancedVirtualRange.topSpacer}px` }} />
+                      {visibleAdvancedResults.map((result) => {
                       const entry = workspace.entries[result.entryId];
                       return (
                         <button
                           key={`advanced-${result.entryId}`}
-                          className="advanced-result"
+                          className="advanced-result virtualized-row"
                           onClick={() => jumpToSearchResult(result, advancedHighlightQuery)}
                           onDoubleClick={() => {
                             jumpToSearchResult(result, advancedHighlightQuery);
@@ -4333,15 +4434,12 @@ function App() {
                           )}
                         </button>
                       );
-                    })
+                      })}
+                      <div style={{ height: `${advancedVirtualRange.bottomSpacer}px` }} />
+                    </>
                   )
                 ) : (
                   <p className="empty-inline">輸入檢索條件後，結果會顯示在這裡。</p>
-                )}
-                {advancedResults.length > visibleAdvancedResults.length && (
-                  <button className="ghost-btn" onClick={loadMoreAdvancedResults}>
-                    載入更多（{visibleAdvancedResults.length}/{advancedResults.length}）
-                  </button>
                 )}
               </div>
 
