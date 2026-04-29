@@ -277,7 +277,7 @@ function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entr
       indent: { left: sharedIndent },
       spacing: { after: 80 },
       children: [
-        new TextRun({ text: "備註：", bold: true }),
+        new TextRun({ text: "備註：", bold: true, font: KAITI_FONT }),
         new TextRun({ text: "", break: 1 }),
         ...plainTextRuns(entry.note || "（無）", { font: KAITI_FONT }),
       ],
