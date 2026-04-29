@@ -2067,7 +2067,7 @@ function App() {
 
     const drafts = collectEntryDraftsByResults(advancedResults);
     if (drafts.length === 0) {
-      window.alert("沒有可導入的檢索結果。");
+      window.alert("沒有可匯入的檢索結果。");
       return;
     }
 
@@ -3436,12 +3436,12 @@ function App() {
           <div className="modal-card modal-xl" onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-head">
               <h3>高級檢索</h3>
-              <p className="meta-text">按關鍵詞、標籤、引文檢索，並將結果導入到專案或章節。</p>
+              <p className="meta-text">以關鍵字、標籤、引文檢索，並將結果匯入至專案或章節。</p>
             </div>
 
             <div className="advanced-filter-grid">
               <label className="modal-label">
-                關鍵詞
+                關鍵字
                 <input
                   value={advancedModal.query}
                   onChange={(event) =>
@@ -3484,7 +3484,7 @@ function App() {
               <p className="result-meta">
                 {hasAdvancedSearch
                   ? `共 ${advancedResults.length} 條結果`
-                  : "請至少填一個檢索條件。"}
+                  : "請至少輸入一個檢索條件。"}
               </p>
               <button
                 className="ghost-btn"
@@ -3554,7 +3554,7 @@ function App() {
             </div>
 
             <section className="advanced-destination">
-              <p className="eyebrow">結果導入</p>
+              <p className="eyebrow">結果匯入</p>
               <div className="advanced-mode-grid">
                 <button
                   className={advancedModal.targetMode === "new-project" ? "scope active" : "scope"}
@@ -3572,7 +3572,7 @@ function App() {
                   className={advancedModal.targetMode === "existing-project" ? "scope active" : "scope"}
                   onClick={() => setAdvancedModal((state) => ({ ...state, targetMode: "existing-project" }))}
                 >
-                  既有專案
+                  現有專案
                 </button>
                 <button
                   className={advancedModal.targetMode === "existing-chapter" ? "scope active" : "scope"}
@@ -3585,10 +3585,10 @@ function App() {
                         workspace.chapters[state.existingChapterId]?.projectId === state.existingProjectId
                           ? state.existingChapterId
                           : workspace.projects[state.existingProjectId]?.chapterIds[0] ?? "",
-                    }))
+                      }))
                   }
                 >
-                  既有章節
+                  現有章節
                 </button>
               </div>
 
@@ -3681,7 +3681,7 @@ function App() {
                 onClick={importAdvancedResults}
                 disabled={!hasAdvancedSearch || advancedResults.length === 0}
               >
-                導入檢索結果
+                匯入檢索結果
               </button>
             </div>
           </div>
