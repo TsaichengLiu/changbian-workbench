@@ -3963,10 +3963,6 @@ function App() {
                     ? workspace.chapters[viewedEntry.chapterId]?.title || "未分章"
                     : "未分章"}
                 </p>
-                <p className="meta-text entry-view-time-meta">
-                  建立：{formatDateTimeLabel(viewedEntry.createdAt)} ｜ 修改：
-                  {formatDateTimeLabel(viewedEntry.updatedAt)}
-                </p>
               </div>
               <button className="ghost-btn danger-btn" onClick={() => deleteEntry(viewedEntry.id)}>
                 刪除
@@ -4120,29 +4116,35 @@ function App() {
               </section>
             </div>
 
-            <div className="modal-actions">
-              {entryViewModal.editing ? (
-                <>
-                  <button className="ghost-btn" onClick={cancelEntryViewEditing}>
-                    取消編輯
-                  </button>
-                  <button className="secondary-btn" onClick={applyEntryEditor}>
-                    保存修改
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    className="ghost-btn"
-                    onClick={() => beginEditEntry(viewedEntry.id, entryViewHighlightQuery)}
-                  >
-                    編輯
-                  </button>
-                  <button className="ghost-btn" onClick={() => setModalState(null)}>
-                    關閉
-                  </button>
-                </>
-              )}
+            <div className="entry-view-footer">
+              <p className="meta-text entry-view-time-meta">
+                建立：{formatDateTimeLabel(viewedEntry.createdAt)} ｜ 修改：
+                {formatDateTimeLabel(viewedEntry.updatedAt)}
+              </p>
+              <div className="entry-view-footer-actions">
+                {entryViewModal.editing ? (
+                  <>
+                    <button className="ghost-btn" onClick={cancelEntryViewEditing}>
+                      取消編輯
+                    </button>
+                    <button className="secondary-btn" onClick={applyEntryEditor}>
+                      保存修改
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="ghost-btn"
+                      onClick={() => beginEditEntry(viewedEntry.id, entryViewHighlightQuery)}
+                    >
+                      編輯
+                    </button>
+                    <button className="ghost-btn" onClick={() => setModalState(null)}>
+                      關閉
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

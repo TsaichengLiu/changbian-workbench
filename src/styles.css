@@ -445,10 +445,6 @@ h3 {
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.entry-card.virtualized-row {
-  min-height: 238px;
-}
-
 .entry-card:hover {
   transform: translateY(-1px);
   border-color: rgba(47, 111, 105, 0.42);
@@ -668,10 +664,6 @@ h3 {
   gap: 5px;
 }
 
-.search-item.virtualized-row {
-  min-height: 162px;
-}
-
 .search-item:hover {
   border-color: rgba(47, 111, 105, 0.5);
   background: #f2fbf9;
@@ -691,6 +683,13 @@ h3 {
 .search-citation {
   color: #4c6368;
   font-size: 13px;
+}
+
+.search-item .search-snippet {
+  line-height: 1.55;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .match-highlight {
@@ -856,6 +855,21 @@ h3 {
 .entry-view-time-meta {
   font-size: 12px;
   opacity: 0.9;
+  margin: 0;
+}
+
+.entry-view-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.entry-view-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .entry-view-block {
@@ -1079,10 +1093,6 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.advanced-result.virtualized-row {
-  min-height: 208px;
 }
 
 .advanced-result:hover {
