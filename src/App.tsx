@@ -281,9 +281,33 @@ type AdvancedTargetMode =
   | "existing-project"
   | "existing-chapter";
 
+type AdvancedQueryScope =
+  | "project"
+  | "chapter"
+  | "time"
+  | "summary"
+  | "source"
+  | "note"
+  | "citation";
+
+const ADVANCED_QUERY_SCOPE_OPTIONS: Array<{ value: AdvancedQueryScope; label: string }> = [
+  { value: "project", label: "專案名稱" },
+  { value: "chapter", label: "章節名稱" },
+  { value: "time", label: "時間" },
+  { value: "summary", label: "摘要" },
+  { value: "source", label: "史料文本" },
+  { value: "note", label: "備註" },
+  { value: "citation", label: "引文註釋" },
+];
+
+const DEFAULT_ADVANCED_QUERY_SCOPES: AdvancedQueryScope[] = ADVANCED_QUERY_SCOPE_OPTIONS.map(
+  (option) => option.value,
+);
+
 interface AdvancedSearchModalState {
   open: boolean;
   query: string;
+  queryScopes: AdvancedQueryScope[];
   tag: string;
   citationTitle: string;
   targetMode: AdvancedTargetMode;
@@ -302,6 +326,7 @@ interface ChapterMergeModalState {
 
 interface EntryFilterCriteria {
   query: string;
+  queryScopes?: AdvancedQueryScope[];
   tag: string;
   citationTitle: string;
 }
@@ -881,6 +906,7 @@ function renderLightMarkup(text: string): string {
 
 function filterEntriesByCriteria(workspace: WorkspaceData, criteria: EntryFilterCriteria): SearchResult[] {
   const query = criteria.query.trim();
+  const queryScopes = criteria.queryScopes ?? DEFAULT_ADVANCED_QUERY_SCOPES;
   const normalizedTag = normalizeTagInput(criteria.tag).toLocaleLowerCase();
   const citationTitle = criteria.citationTitle.trim();
 
@@ -894,21 +920,30 @@ function filterEntriesByCriteria(workspace: WorkspaceData, criteria: EntryFilter
       return false;
     }
 
+    const queryFields = queryScopes.flatMap((scope) => {
+      if (scope === "project") {
+        return [result.projectTitle];
+      }
+      if (scope === "chapter") {
+        return [result.chapterTitle];
+      }
+      if (scope === "time") {
+        return [entry.timeText];
+      }
+      if (scope === "summary") {
+        return [entry.summary];
+      }
+      if (scope === "source") {
+        return [entry.sourceText];
+      }
+      if (scope === "note") {
+        return [entry.note];
+      }
+      return [entry.citation];
+    });
+
     const queryPass = query
-      ? matchesTraditionalSimplified(
-          [
-            result.projectTitle,
-            result.chapterTitle,
-            entry.timeText,
-            entry.summary,
-            entry.sourceText,
-            entry.note,
-            entry.citation,
-          ]
-            .join("\n")
-            .trim(),
-          query,
-        )
+      ? queryFields.length > 0 && matchesTraditionalSimplified(queryFields.join("\n").trim(), query)
       : true;
 
     const tagPass = normalizedTag
@@ -955,6 +990,7 @@ function App() {
   const [advancedModal, setAdvancedModal] = useState<AdvancedSearchModalState>({
     open: false,
     query: "",
+    queryScopes: DEFAULT_ADVANCED_QUERY_SCOPES,
     tag: "",
     citationTitle: "",
     targetMode: "new-project",
@@ -1130,14 +1166,16 @@ function App() {
       normalizeTagInput(advancedModal.tag) ||
       advancedModal.citationTitle.trim(),
   );
+  const hasAdvancedQueryScope = advancedModal.queryScopes.length > 0;
   const advancedResults = useMemo(
     () =>
       filterEntriesByCriteria(workspace, {
         query: advancedModal.query,
+        queryScopes: advancedModal.queryScopes,
         tag: advancedModal.tag,
         citationTitle: advancedModal.citationTitle,
       }),
-    [advancedModal.citationTitle, advancedModal.query, advancedModal.tag, workspace],
+    [advancedModal.citationTitle, advancedModal.query, advancedModal.queryScopes, advancedModal.tag, workspace],
   );
 
   useEffect(() => {
@@ -2042,6 +2080,7 @@ function App() {
     setAdvancedModal({
       open: true,
       query: globalQuery,
+      queryScopes: DEFAULT_ADVANCED_QUERY_SCOPES,
       tag: selectedTag,
       citationTitle: "",
       targetMode: "new-project",
@@ -2062,6 +2101,10 @@ function App() {
   function importAdvancedResults(): void {
     if (!hasAdvancedSearch) {
       window.alert("請至少輸入一個檢索條件。");
+      return;
+    }
+    if (advancedModal.query.trim() && !hasAdvancedQueryScope) {
+      window.alert("請至少勾選一個關鍵字檢索欄位。");
       return;
     }
 
@@ -3480,6 +3523,38 @@ function App() {
               </label>
             </div>
 
+            <section className="advanced-scope-panel">
+              <div className="advanced-scope-head">
+                <p className="eyebrow">關鍵字檢索範圍</p>
+                <p className="meta-text">可勾選一個或多個欄位</p>
+              </div>
+              <div className="advanced-scope-grid">
+                {ADVANCED_QUERY_SCOPE_OPTIONS.map((option) => {
+                  const checked = advancedModal.queryScopes.includes(option.value);
+                  return (
+                    <label
+                      key={`advanced-scope-${option.value}`}
+                      className={`advanced-scope-item ${checked ? "checked" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          setAdvancedModal((state) => {
+                            const next = event.target.checked
+                              ? Array.from(new Set([...state.queryScopes, option.value]))
+                              : state.queryScopes.filter((scope) => scope !== option.value);
+                            return { ...state, queryScopes: next };
+                          });
+                        }}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+
             <div className="advanced-results-head">
               <p className="result-meta">
                 {hasAdvancedSearch
@@ -3492,6 +3567,7 @@ function App() {
                   setAdvancedModal((state) => ({
                     ...state,
                     query: "",
+                    queryScopes: DEFAULT_ADVANCED_QUERY_SCOPES,
                     tag: "",
                     citationTitle: "",
                   }))
@@ -3503,7 +3579,9 @@ function App() {
 
             <div className="advanced-results">
               {hasAdvancedSearch ? (
-                advancedResults.length === 0 ? (
+                advancedModal.query.trim() && !hasAdvancedQueryScope ? (
+                  <p className="empty-inline">請至少勾選一個關鍵字檢索欄位。</p>
+                ) : advancedResults.length === 0 ? (
                   <p className="empty-inline">未檢索到符合內容。</p>
                 ) : (
                   advancedResults.map((result) => {

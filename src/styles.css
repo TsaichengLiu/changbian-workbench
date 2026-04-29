@@ -937,6 +937,59 @@ h3 {
   gap: 10px;
 }
 
+.advanced-scope-panel {
+  border: 1px solid rgba(46, 64, 69, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.advanced-scope-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.advanced-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.advanced-scope-item {
+  border: 1px solid rgba(46, 64, 69, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #2f4b52;
+  cursor: pointer;
+  user-select: none;
+}
+
+.advanced-scope-item.checked {
+  border-color: rgba(47, 111, 105, 0.5);
+  background: rgba(236, 249, 246, 0.94);
+}
+
+.advanced-scope-item input {
+  margin: 0;
+  accent-color: #2f6f69;
+}
+
+.advanced-scope-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .advanced-results-head {
   display: flex;
   align-items: center;
@@ -1079,6 +1132,7 @@ h3 {
 .app-shell[data-theme]:not([data-theme="changbian"]) .drag-handle:hover,
 .app-shell[data-theme]:not([data-theme="changbian"]) .search-item:hover,
 .app-shell[data-theme]:not([data-theme="changbian"]) .advanced-result:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .advanced-scope-item:hover,
 .app-shell[data-theme]:not([data-theme="changbian"]) .merge-item:hover,
 .app-shell[data-theme]:not([data-theme="changbian"]) .context-item:hover {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
@@ -1089,9 +1143,16 @@ h3 {
 .app-shell[data-theme]:not([data-theme="changbian"]) .entry-card:hover,
 .app-shell[data-theme]:not([data-theme="changbian"]) .search-item:hover,
 .app-shell[data-theme]:not([data-theme="changbian"]) .advanced-result:hover,
+.app-shell[data-theme]:not([data-theme="changbian"]) .advanced-scope-item.checked,
 .app-shell[data-theme]:not([data-theme="changbian"]) .drop-target {
   border-color: color-mix(in srgb, var(--accent) 68%, transparent);
   outline-color: color-mix(in srgb, var(--accent) 68%, transparent);
+}
+
+.app-shell[data-theme]:not([data-theme="changbian"]) .advanced-scope-item {
+  color: var(--ink-0);
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .app-shell[data-theme]:not([data-theme="changbian"]) .entry-card.selected {
@@ -1128,6 +1189,7 @@ h3 {
 .app-shell[data-card-style="outline"] .merge-list,
 .app-shell[data-card-style="outline"] .advanced-results,
 .app-shell[data-card-style="outline"] .advanced-result,
+.app-shell[data-card-style="outline"] .advanced-scope-panel,
 .app-shell[data-card-style="outline"] .advanced-destination,
 .app-shell[data-card-style="outline"] .path-preview,
 .app-shell[data-card-style="outline"] .status-text {
@@ -1151,6 +1213,7 @@ h3 {
 .app-shell[data-card-style="outline"] .merge-list::before,
 .app-shell[data-card-style="outline"] .advanced-results::before,
 .app-shell[data-card-style="outline"] .advanced-result::before,
+.app-shell[data-card-style="outline"] .advanced-scope-panel::before,
 .app-shell[data-card-style="outline"] .advanced-destination::before,
 .app-shell[data-card-style="outline"] .path-preview::before,
 .app-shell[data-card-style="outline"] .status-text::before {
@@ -1179,6 +1242,7 @@ h3 {
 .app-shell[data-card-style="frosted"] .merge-list,
 .app-shell[data-card-style="frosted"] .advanced-results,
 .app-shell[data-card-style="frosted"] .advanced-result,
+.app-shell[data-card-style="frosted"] .advanced-scope-panel,
 .app-shell[data-card-style="frosted"] .advanced-destination,
 .app-shell[data-card-style="frosted"] .path-preview,
 .app-shell[data-card-style="frosted"] .status-text {
@@ -1203,6 +1267,7 @@ h3 {
 .app-shell[data-card-style="frosted"] .merge-list::before,
 .app-shell[data-card-style="frosted"] .advanced-results::before,
 .app-shell[data-card-style="frosted"] .advanced-result::before,
+.app-shell[data-card-style="frosted"] .advanced-scope-panel::before,
 .app-shell[data-card-style="frosted"] .advanced-destination::before,
 .app-shell[data-card-style="frosted"] .path-preview::before,
 .app-shell[data-card-style="frosted"] .status-text::before {
@@ -1245,7 +1310,17 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .advanced-scope-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .advanced-mode-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .advanced-scope-grid {
     grid-template-columns: 1fr;
   }
 }
