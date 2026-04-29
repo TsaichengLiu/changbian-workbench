@@ -177,6 +177,13 @@ const KAITI_FONT: IRunOptions["font"] = {
   cs: "KaiTi",
 };
 
+const SONGTI_FONT: IRunOptions["font"] = {
+  ascii: "SimSun",
+  hAnsi: "SimSun",
+  eastAsia: "SimSun",
+  cs: "SimSun",
+};
+
 export function exportAsTxt(workspace: WorkspaceData, scope: ExportScope): void {
   const projects = getExportProjects(workspace, scope);
   const lines: string[] = ["長編工作臺匯出", ""];
@@ -238,25 +245,14 @@ export function exportAsTxt(workspace: WorkspaceData, scope: ExportScope): void 
 
 function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entry): void {
   const sharedIndent = DOCX_INDENT.entry;
+  const summaryLabel = entry.summary.trim() || "（無摘要）";
 
   children.push(
     new Paragraph({
-      text: `${order}. ${entryHeadline(entry)}`,
+      text: `${order}. ${entryHeadline(entry)}｜${summaryLabel}`,
       heading: HeadingLevel.HEADING_3,
       indent: { left: sharedIndent },
       spacing: { before: 80, after: 60 },
-    }),
-  );
-
-  children.push(
-    new Paragraph({
-      heading: HeadingLevel.HEADING_3,
-      indent: { left: sharedIndent },
-      spacing: { after: 70 },
-      children: [
-        new TextRun({ text: "摘要：", bold: true }),
-        ...plainTextRuns(entry.summary || "（無）"),
-      ],
     }),
   );
 
@@ -267,7 +263,7 @@ function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entr
       children: [
         new TextRun({ text: "史料文本：", bold: true }),
         new TextRun({ text: "", break: 1 }),
-        ...sourceTextRuns(entry.sourceText || "（無）"),
+        ...sourceTextRuns(entry.sourceText || "（無）", { font: SONGTI_FONT }),
       ],
     }),
   );
@@ -291,7 +287,7 @@ function appendEntryParagraphs(children: Paragraph[], order: number, entry: Entr
       children: [
         new TextRun({ text: "引文註釋：", bold: true }),
         new TextRun({ text: "", break: 1 }),
-        ...plainTextRuns(entry.citation || "（無）"),
+        ...plainTextRuns(entry.citation || "（無）", { font: SONGTI_FONT }),
       ],
     }),
   );
@@ -385,6 +381,30 @@ export async function exportAsDocx(workspace: WorkspaceData, scope: ExportScope)
   const doc = new Document({
     features: {
       updateFields: true,
+    },
+    styles: {
+      default: {
+        document: {
+          run: {
+            font: SONGTI_FONT,
+          },
+        },
+        heading1: {
+          run: {
+            font: SONGTI_FONT,
+          },
+        },
+        heading2: {
+          run: {
+            font: SONGTI_FONT,
+          },
+        },
+        heading3: {
+          run: {
+            font: SONGTI_FONT,
+          },
+        },
+      },
     },
     sections: [
       {
