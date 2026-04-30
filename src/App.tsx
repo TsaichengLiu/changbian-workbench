@@ -1873,7 +1873,9 @@ function App() {
       ) {
         return;
       }
-      if (event.target instanceof Element && !event.target.closest(".entry-card")) {
+      const shouldKeepEntrySelection =
+        event.target instanceof Element && Boolean(event.target.closest('[data-keep-entry-selection="true"]'));
+      if (event.target instanceof Element && !event.target.closest(".entry-card") && !shouldKeepEntrySelection) {
         setWorkspace((previous) =>
           previous.selectedEntryId
             ? {
@@ -3837,11 +3839,17 @@ function App() {
               </p>
             </div>
             <div className="head-actions">
-              <button className="secondary-btn" onClick={createEntry} disabled={!activeProject}>
+              <button
+                className="secondary-btn"
+                data-keep-entry-selection="true"
+                onClick={createEntry}
+                disabled={!activeProject}
+              >
                 + 新增史料
               </button>
               <button
                 className="ghost-btn"
+                data-keep-entry-selection="true"
                 onClick={pasteEntryFromToolbar}
                 disabled={!activeProject || clipboard?.kind !== "entry"}
               >
