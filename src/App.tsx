@@ -1097,7 +1097,7 @@ const ENTRY_VIRTUALIZE_THRESHOLD = 80;
 const SEARCH_RESULT_VIRTUALIZE_THRESHOLD = 80;
 const ADVANCED_RESULT_VIRTUALIZE_THRESHOLD = 80;
 
-type NavigationScope = "entry" | "chapter" | "project";
+type NavigationScope = "entry" | "chapter" | "project" | "search" | "advanced";
 
 type SearchWorkerChannel = "global" | "advanced";
 
@@ -1202,6 +1202,8 @@ function App() {
   const [navigationScope, setNavigationScope] = useState<NavigationScope>("entry");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [advancedResults, setAdvancedResults] = useState<SearchResult[]>([]);
+  const [selectedSearchResultEntryId, setSelectedSearchResultEntryId] = useState<string | null>(null);
+  const [selectedAdvancedResultEntryId, setSelectedAdvancedResultEntryId] = useState<string | null>(null);
   const [entryListScrollTop, setEntryListScrollTop] = useState(0);
   const [searchResultsScrollTop, setSearchResultsScrollTop] = useState(0);
   const [advancedResultsScrollTop, setAdvancedResultsScrollTop] = useState(0);
@@ -1392,6 +1394,12 @@ function App() {
   }, [workspace]);
 
   useEffect(() => {
+    if (!advancedModal.open && navigationScope === "advanced") {
+      setNavigationScope("search");
+    }
+  }, [advancedModal.open, navigationScope]);
+
+  useEffect(() => {
     const elements = [
       leftPaneScrollRef.current,
       centerPaneScrollRef.current,
@@ -1556,6 +1564,33 @@ function App() {
     () => advancedResults.slice(advancedVirtualRange.start, advancedVirtualRange.end),
     [advancedResults, advancedVirtualRange.end, advancedVirtualRange.start],
   );
+
+  useEffect(() => {
+    if (!hasSearch || searchResults.length === 0) {
+      if (selectedSearchResultEntryId !== null) {
+        setSelectedSearchResultEntryId(null);
+      }
+      return;
+    }
+    if (!selectedSearchResultEntryId || !searchResults.some((result) => result.entryId === selectedSearchResultEntryId)) {
+      setSelectedSearchResultEntryId(searchResults[0].entryId);
+    }
+  }, [hasSearch, searchResults, selectedSearchResultEntryId]);
+
+  useEffect(() => {
+    if (!hasAdvancedSearch || advancedResults.length === 0) {
+      if (selectedAdvancedResultEntryId !== null) {
+        setSelectedAdvancedResultEntryId(null);
+      }
+      return;
+    }
+    if (
+      !selectedAdvancedResultEntryId ||
+      !advancedResults.some((result) => result.entryId === selectedAdvancedResultEntryId)
+    ) {
+      setSelectedAdvancedResultEntryId(advancedResults[0].entryId);
+    }
+  }, [hasAdvancedSearch, advancedResults, selectedAdvancedResultEntryId]);
 
   async function queryBySqlite(criteria: SearchCriteria): Promise<SearchResult[] | null> {
     if (!window.searchBridge?.query) {
@@ -1988,6 +2023,44 @@ function App() {
         return orderedIds[nextIndex] ?? null;
       };
 
+      if (navigationScope === "advanced" && advancedModal.open && advancedResults.length > 0) {
+        const orderedAdvancedEntryIds = advancedResults.map((result) => result.entryId);
+        const nextAdvancedEntryId = moveSelection(orderedAdvancedEntryIds, selectedAdvancedResultEntryId);
+        if (!nextAdvancedEntryId) {
+          return;
+        }
+        const nextAdvancedResult = advancedResults.find((result) => result.entryId === nextAdvancedEntryId);
+        if (!nextAdvancedResult) {
+          return;
+        }
+        setSelectedAdvancedResultEntryId(nextAdvancedEntryId);
+        jumpToSearchResult(nextAdvancedResult, advancedHighlightQuery);
+        window.requestAnimationFrame(() => {
+          const node = document.querySelector<HTMLElement>(`[data-advanced-entry-id="${nextAdvancedEntryId}"]`);
+          node?.scrollIntoView({ block: "nearest" });
+        });
+        return;
+      }
+
+      if (navigationScope === "search" && !advancedModal.open && searchResults.length > 0) {
+        const orderedSearchEntryIds = searchResults.map((result) => result.entryId);
+        const nextSearchEntryId = moveSelection(orderedSearchEntryIds, selectedSearchResultEntryId);
+        if (!nextSearchEntryId) {
+          return;
+        }
+        const nextSearchResult = searchResults.find((result) => result.entryId === nextSearchEntryId);
+        if (!nextSearchResult) {
+          return;
+        }
+        setSelectedSearchResultEntryId(nextSearchEntryId);
+        jumpToSearchResult(nextSearchResult, searchHighlightQuery);
+        window.requestAnimationFrame(() => {
+          const node = document.querySelector<HTMLElement>(`[data-search-entry-id="${nextSearchEntryId}"]`);
+          node?.scrollIntoView({ block: "nearest" });
+        });
+        return;
+      }
+
       if (navigationScope === "entry" && currentEntryIds.length > 0) {
         const orderedSelectedEntryIds = currentEntryIds.filter((entryId) => selectedEntryIdSet.has(entryId));
         const currentId =
@@ -2048,17 +2121,24 @@ function App() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [
+    advancedHighlightQuery,
     activeChapter,
     activeProject,
+    advancedModal.open,
+    advancedResults,
     clipboard,
     contextMenu,
     currentEntryIds,
     modalState,
     navigationScope,
+    searchHighlightQuery,
+    searchResults,
+    selectedAdvancedResultEntryId,
     selectedChapterIdSet,
     selectedChapterIds,
     selectedEntryIdSet,
     selectedEntryIds,
+    selectedSearchResultEntryId,
     workspace.activeProjectId,
     workspace.chapters,
     workspace.projectOrder,
@@ -3180,6 +3260,7 @@ function App() {
       existingProjectId: fallbackProjectId,
       existingChapterId: fallbackChapterId,
     });
+    setNavigationScope("advanced");
   }
 
   function collectEntryDraftsByResults(results: SearchResult[]): EntryDraft[] {
@@ -4041,12 +4122,14 @@ function App() {
               className="search-input"
               placeholder="檢索時間、摘要、史料文本、備註、引文註釋..."
               value={globalQuery}
+              onFocus={() => setNavigationScope("search")}
               onChange={(event) => setGlobalQuery(event.target.value)}
             />
 
             <select
               className="search-input"
               value={selectedTag}
+              onFocus={() => setNavigationScope("search")}
               onChange={(event) => setSelectedTag(event.target.value)}
             >
               <option value="">全部標籤（{allTags.length}）</option>
@@ -4064,6 +4147,7 @@ function App() {
             <div
               ref={searchResultsRef}
               className="search-results"
+              onMouseDown={() => setNavigationScope("search")}
               onScroll={(event) => setSearchResultsScrollTop(event.currentTarget.scrollTop)}
             >
               <p className="result-meta">
@@ -4094,9 +4178,16 @@ function App() {
                     return (
                       <button
                         key={result.entryId}
-                        className="search-item virtualized-row"
-                        onClick={() => jumpToSearchResult(result, searchHighlightQuery)}
+                        data-search-entry-id={result.entryId}
+                        className={`search-item virtualized-row ${selectedSearchResultEntryId === result.entryId ? "selected" : ""}`}
+                        onClick={() => {
+                          setSelectedSearchResultEntryId(result.entryId);
+                          setNavigationScope("search");
+                          jumpToSearchResult(result, searchHighlightQuery);
+                        }}
                         onDoubleClick={() => {
+                          setSelectedSearchResultEntryId(result.entryId);
+                          setNavigationScope("search");
                           jumpToSearchResult(result, searchHighlightQuery);
                           beginViewEntry(result.entryId, searchHighlightQuery);
                         }}
@@ -4834,196 +4925,107 @@ function App() {
               <p className="meta-text">以關鍵字、標籤、引文檢索，並將結果匯入至專案或章節。</p>
             </div>
 
-            <div className="modal-grid advanced-modal-body">
-              <div className="advanced-filter-grid">
-                <label className="modal-label">
-                  關鍵字
-                  <input
-                    value={advancedModal.query}
-                    onChange={(event) =>
-                      setAdvancedModal((state) => ({ ...state, query: event.target.value }))
-                    }
-                    placeholder="檢索時間、摘要、史料文本、備註、引文註釋..."
-                  />
-                </label>
+            <div className="modal-grid advanced-modal-body advanced-layout">
+              <section className="advanced-left-column">
+                <div className="advanced-filter-grid">
+                  <label className="modal-label">
+                    關鍵字
+                    <input
+                      value={advancedModal.query}
+                      onFocus={() => setNavigationScope("advanced")}
+                      onChange={(event) =>
+                        setAdvancedModal((state) => ({ ...state, query: event.target.value }))
+                      }
+                      placeholder="檢索時間、摘要、史料文本、備註、引文註釋..."
+                    />
+                  </label>
 
-                <label className="modal-label">
-                  標籤（可選）
-                  <input
-                    list="advanced-tag-list"
-                    value={advancedModal.tag}
-                    onChange={(event) =>
-                      setAdvancedModal((state) => ({ ...state, tag: event.target.value }))
-                    }
-                    placeholder="如：#人物、#政治"
-                  />
-                  <datalist id="advanced-tag-list">
-                    {allTags.map((tag) => (
-                      <option key={`advanced-${tag}`} value={tag} />
-                    ))}
-                  </datalist>
-                </label>
+                  <label className="modal-label">
+                    標籤（可選）
+                    <input
+                      list="advanced-tag-list"
+                      value={advancedModal.tag}
+                      onFocus={() => setNavigationScope("advanced")}
+                      onChange={(event) =>
+                        setAdvancedModal((state) => ({ ...state, tag: event.target.value }))
+                      }
+                      placeholder="如：#人物、#政治"
+                    />
+                    <datalist id="advanced-tag-list">
+                      {allTags.map((tag) => (
+                        <option key={`advanced-${tag}`} value={tag} />
+                      ))}
+                    </datalist>
+                  </label>
 
-                <label className="modal-label">
-                  引文《》書名（可選）
-                  <input
-                    value={advancedModal.citationTitle}
-                    onChange={(event) =>
-                      setAdvancedModal((state) => ({ ...state, citationTitle: event.target.value }))
-                    }
-                    placeholder="如：明史 / 資治通鑑"
-                  />
-                </label>
-              </div>
-
-              <section className="advanced-scope-panel">
-                <div className="advanced-scope-head">
-                  <p className="eyebrow">關鍵字檢索範圍</p>
-                  <p className="meta-text">可勾選一個或多個欄位</p>
+                  <label className="modal-label">
+                    引文《》書名（可選）
+                    <input
+                      value={advancedModal.citationTitle}
+                      onFocus={() => setNavigationScope("advanced")}
+                      onChange={(event) =>
+                        setAdvancedModal((state) => ({ ...state, citationTitle: event.target.value }))
+                      }
+                      placeholder="如：明史 / 資治通鑑"
+                    />
+                  </label>
                 </div>
-                <div className="advanced-scope-grid">
-                  {ADVANCED_QUERY_SCOPE_OPTIONS.map((option) => {
-                    const checked = advancedModal.queryScopes.includes(option.value);
-                    return (
-                      <label
-                        key={`advanced-scope-${option.value}`}
-                        className={`advanced-scope-item ${checked ? "checked" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(event) => {
-                            setAdvancedModal((state) => {
-                              const next = event.target.checked
-                                ? Array.from(new Set([...state.queryScopes, option.value]))
-                                : state.queryScopes.filter((scope) => scope !== option.value);
-                              return { ...state, queryScopes: next };
-                            });
-                          }}
-                        />
-                        <span>{option.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </section>
 
-              <div className="advanced-results-head">
-                <p className="result-meta">
-                  {hasAdvancedSearch
-                    ? `共 ${advancedResults.length} 條結果`
-                    : "請至少輸入一個檢索條件。"}
-                </p>
-                <button
-                  className="ghost-btn"
-                  onClick={() =>
-                    setAdvancedModal((state) => ({
-                      ...state,
-                      query: "",
-                      queryScopes: DEFAULT_ADVANCED_QUERY_SCOPES,
-                      tag: "",
-                      citationTitle: "",
-                    }))
-                  }
-                >
-                  清空條件
-                </button>
-              </div>
-
-              <div
-                ref={advancedResultsRef}
-                className="advanced-results"
-                onScroll={(event) => setAdvancedResultsScrollTop(event.currentTarget.scrollTop)}
-              >
-                {hasAdvancedSearch ? (
-                  deferredAdvancedQuery.trim() && !hasAdvancedQueryScope ? (
-                    <p className="empty-inline">請至少勾選一個關鍵字檢索欄位。</p>
-                  ) : advancedResults.length === 0 ? (
-                    <p className="empty-inline">未檢索到符合內容。</p>
-                  ) : (
-                    <>
-                      {shouldVirtualizeAdvancedResults && (
-                        <div style={{ height: `${advancedVirtualRange.topSpacer}px` }} />
-                      )}
-                      {visibleAdvancedResults.map((result) => {
-                      const entry = workspace.entries[result.entryId];
+                <section className="advanced-scope-panel">
+                  <div className="advanced-scope-head">
+                    <p className="eyebrow">關鍵字檢索範圍</p>
+                    <p className="meta-text">可勾選一個或多個欄位</p>
+                  </div>
+                  <div className="advanced-scope-grid">
+                    {ADVANCED_QUERY_SCOPE_OPTIONS.map((option) => {
+                      const checked = advancedModal.queryScopes.includes(option.value);
                       return (
-                        <button
-                          key={`advanced-${result.entryId}`}
-                          className="advanced-result virtualized-row"
-                          onClick={() => jumpToSearchResult(result, advancedHighlightQuery)}
-                          onDoubleClick={() => {
-                            jumpToSearchResult(result, advancedHighlightQuery);
-                            beginViewEntry(result.entryId, advancedHighlightQuery);
-                          }}
+                        <label
+                          key={`advanced-scope-${option.value}`}
+                          className={`advanced-scope-item ${checked ? "checked" : ""}`}
                         >
-                          <div
-                            className="search-path"
-                            dangerouslySetInnerHTML={{
-                              __html: renderHighlightedPlainText(
-                                `${result.projectTitle} / ${result.chapterTitle}`,
-                                advancedHighlightQuery,
-                              ),
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) => {
+                              setAdvancedModal((state) => {
+                                const next = event.target.checked
+                                  ? Array.from(new Set([...state.queryScopes, option.value]))
+                                  : state.queryScopes.filter((scope) => scope !== option.value);
+                                return { ...state, queryScopes: next };
+                              });
                             }}
                           />
-                          <div
-                            className="search-time"
-                            dangerouslySetInnerHTML={{
-                              __html: renderHighlightedPlainText(
-                                formatEntryHeadline(result.timeText, result.summaryText),
-                                advancedHighlightQuery,
-                              ),
-                            }}
-                          />
-                          {entry?.sourceText.trim() ? (
-                            <div
-                              className="advanced-source rich-markup"
-                              dangerouslySetInnerHTML={{
-                                __html: renderHighlightedLightMarkup(
-                                  summarizeAroundMatch(entry.sourceText, advancedHighlightQuery, 220),
-                                  advancedHighlightQuery,
-                                ),
-                              }}
-                            />
-                          ) : (
-                            <div className="advanced-source">（尚未輸入史料文本）</div>
-                          )}
-                          <div
-                            className="search-citation"
-                            dangerouslySetInnerHTML={{
-                              __html: renderHighlightedPlainText(
-                                summarizeAroundMatch(
-                                  entry?.citation.trim() || "",
-                                  advancedHighlightQuery,
-                                  120,
-                                ) || "（尚未輸入引文註釋）",
-                                advancedHighlightQuery,
-                              ),
-                            }}
-                          />
-                          {result.tags.length > 0 && (
-                            <div className="tag-row">
-                              {result.tags.map((tag) => (
-                                <span key={`${result.entryId}-advanced-${tag}`} className="tag-chip">
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </button>
+                          <span>{option.label}</span>
+                        </label>
                       );
-                      })}
-                      {shouldVirtualizeAdvancedResults && (
-                        <div style={{ height: `${advancedVirtualRange.bottomSpacer}px` }} />
-                      )}
-                    </>
-                  )
-                ) : (
-                  <p className="empty-inline">輸入檢索條件後，結果會顯示在這裡。</p>
-                )}
-              </div>
+                    })}
+                  </div>
+                </section>
 
-              <section className="advanced-destination">
+                <div className="advanced-left-actions">
+                  <p className="result-meta">
+                    {hasAdvancedSearch
+                      ? `共 ${advancedResults.length} 條結果`
+                      : "請至少輸入一個檢索條件。"}
+                  </p>
+                  <button
+                    className="ghost-btn"
+                    onClick={() =>
+                      setAdvancedModal((state) => ({
+                        ...state,
+                        query: "",
+                        queryScopes: DEFAULT_ADVANCED_QUERY_SCOPES,
+                        tag: "",
+                        citationTitle: "",
+                      }))
+                    }
+                  >
+                    清空條件
+                  </button>
+                </div>
+
+                <section className="advanced-destination">
                 <p className="eyebrow">結果匯入</p>
                 <div className="advanced-mode-grid">
                   <button
@@ -5140,6 +5142,115 @@ function App() {
                     </select>
                   </label>
                 )}
+                </section>
+              </section>
+
+              <section className="advanced-right-column">
+                <div className="advanced-results-head">
+                  <p className="eyebrow">檢索預覽</p>
+                  <p className="meta-text">可用 ↑ / ↓ 切換</p>
+                </div>
+
+                <div
+                  ref={advancedResultsRef}
+                  className="advanced-results"
+                  onMouseDown={() => setNavigationScope("advanced")}
+                  onScroll={(event) => setAdvancedResultsScrollTop(event.currentTarget.scrollTop)}
+                >
+                  {hasAdvancedSearch ? (
+                    deferredAdvancedQuery.trim() && !hasAdvancedQueryScope ? (
+                      <p className="empty-inline">請至少勾選一個關鍵字檢索欄位。</p>
+                    ) : advancedResults.length === 0 ? (
+                      <p className="empty-inline">未檢索到符合內容。</p>
+                    ) : (
+                      <>
+                        {shouldVirtualizeAdvancedResults && (
+                          <div style={{ height: `${advancedVirtualRange.topSpacer}px` }} />
+                        )}
+                        {visibleAdvancedResults.map((result) => {
+                        const entry = workspace.entries[result.entryId];
+                        return (
+                          <button
+                            key={`advanced-${result.entryId}`}
+                            data-advanced-entry-id={result.entryId}
+                            className={`advanced-result virtualized-row ${selectedAdvancedResultEntryId === result.entryId ? "selected" : ""}`}
+                            onClick={() => {
+                              setSelectedAdvancedResultEntryId(result.entryId);
+                              setNavigationScope("advanced");
+                              jumpToSearchResult(result, advancedHighlightQuery);
+                            }}
+                            onDoubleClick={() => {
+                              setSelectedAdvancedResultEntryId(result.entryId);
+                              setNavigationScope("advanced");
+                              jumpToSearchResult(result, advancedHighlightQuery);
+                              beginViewEntry(result.entryId, advancedHighlightQuery);
+                            }}
+                          >
+                            <div
+                              className="search-path"
+                              dangerouslySetInnerHTML={{
+                                __html: renderHighlightedPlainText(
+                                  `${result.projectTitle} / ${result.chapterTitle}`,
+                                  advancedHighlightQuery,
+                                ),
+                              }}
+                            />
+                            <div
+                              className="search-time"
+                              dangerouslySetInnerHTML={{
+                                __html: renderHighlightedPlainText(
+                                  formatEntryHeadline(result.timeText, result.summaryText),
+                                  advancedHighlightQuery,
+                                ),
+                              }}
+                            />
+                            {entry?.sourceText.trim() ? (
+                              <div
+                                className="advanced-source rich-markup"
+                                dangerouslySetInnerHTML={{
+                                  __html: renderHighlightedLightMarkup(
+                                    summarizeAroundMatch(entry.sourceText, advancedHighlightQuery, 220),
+                                    advancedHighlightQuery,
+                                  ),
+                                }}
+                              />
+                            ) : (
+                              <div className="advanced-source">（尚未輸入史料文本）</div>
+                            )}
+                            <div
+                              className="search-citation"
+                              dangerouslySetInnerHTML={{
+                                __html: renderHighlightedPlainText(
+                                  summarizeAroundMatch(
+                                    entry?.citation.trim() || "",
+                                    advancedHighlightQuery,
+                                    120,
+                                  ) || "（尚未輸入引文註釋）",
+                                  advancedHighlightQuery,
+                                ),
+                              }}
+                            />
+                            {result.tags.length > 0 && (
+                              <div className="tag-row">
+                                {result.tags.map((tag) => (
+                                  <span key={`${result.entryId}-advanced-${tag}`} className="tag-chip">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </button>
+                        );
+                        })}
+                        {shouldVirtualizeAdvancedResults && (
+                          <div style={{ height: `${advancedVirtualRange.bottomSpacer}px` }} />
+                        )}
+                      </>
+                    )
+                  ) : (
+                    <p className="empty-inline">輸入檢索條件後，結果會顯示在這裡。</p>
+                  )}
+                </div>
               </section>
             </div>
 
