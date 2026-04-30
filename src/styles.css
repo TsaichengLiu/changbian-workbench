@@ -806,6 +806,14 @@ h3 {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  pointer-events: none;
+  background: transparent;
+}
+
+.modal-stack-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 126;
   background: rgba(14, 18, 20, 0.36);
 }
 
@@ -819,6 +827,7 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  pointer-events: auto;
 }
 
 .modal-card.modal-large {
@@ -1080,13 +1089,6 @@ h3 {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.advanced-left-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 10px;
 }
 

@@ -279,6 +279,40 @@ interface ModalDragState {
   originY: number;
 }
 
+type OverlayModalKey =
+  | "storage"
+  | "form"
+  | "entry-view"
+  | "entry-form"
+  | "advanced"
+  | "merge-project"
+  | "merge-chapter";
+
+const OVERLAY_MODAL_KEYS: OverlayModalKey[] = [
+  "storage",
+  "form",
+  "entry-view",
+  "entry-form",
+  "advanced",
+  "merge-project",
+  "merge-chapter",
+];
+
+const MODAL_BASE_Z_INDEX = 130;
+const MODAL_Z_INDEX_STEP = 4;
+
+function createOverlayModalMap<T>(value: T): Record<OverlayModalKey, T> {
+  return {
+    storage: value,
+    form: value,
+    "entry-view": value,
+    "entry-form": value,
+    advanced: value,
+    "merge-project": value,
+    "merge-chapter": value,
+  };
+}
+
 interface MergeModalState {
   open: boolean;
   mode: "into-active" | "as-new";
@@ -1209,6 +1243,9 @@ function App() {
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [navigationScope, setNavigationScope] = useState<NavigationScope>("entry");
   const [modalOffsets, setModalOffsets] = useState<Record<string, { x: number; y: number }>>({});
+  const [modalOrders, setModalOrders] = useState<Record<OverlayModalKey, number>>(
+    () => createOverlayModalMap(0),
+  );
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [advancedResults, setAdvancedResults] = useState<SearchResult[]>([]);
   const [selectedSearchResultEntryId, setSelectedSearchResultEntryId] = useState<string | null>(null);
@@ -1272,6 +1309,8 @@ function App() {
   const chapterSelectionAnchorRef = useRef<string | null>(null);
   const entrySelectionAnchorRef = useRef<string | null>(null);
   const modalDragStateRef = useRef<ModalDragState | null>(null);
+  const modalOrderCounterRef = useRef(0);
+  const modalOpenStateRef = useRef<Record<OverlayModalKey, boolean>>(createOverlayModalMap(false));
 
   const activeProject = workspace.activeProjectId
     ? workspace.projects[workspace.activeProjectId] ?? null
@@ -1492,31 +1531,20 @@ function App() {
   const debouncedGlobalQuery = useDebouncedValue(globalQuery);
   const debouncedSelectedTag = useDebouncedValue(selectedTag);
   const debouncedAdvancedQuery = useDebouncedValue(advancedModal.query);
-  const debouncedAdvancedTag = useDebouncedValue(advancedModal.tag);
-  const debouncedAdvancedCitationTitle = useDebouncedValue(advancedModal.citationTitle);
 
   const deferredGlobalQuery = useDeferredValue(debouncedGlobalQuery);
   const deferredSelectedTag = useDeferredValue(debouncedSelectedTag);
   const deferredAdvancedQuery = useDeferredValue(debouncedAdvancedQuery);
-  const deferredAdvancedTag = useDeferredValue(debouncedAdvancedTag);
-  const deferredAdvancedCitationTitle = useDeferredValue(debouncedAdvancedCitationTitle);
   const deferredAdvancedQueryScopes = useDeferredValue(advancedModal.queryScopes);
 
   const hasSearch = Boolean(deferredGlobalQuery.trim() || normalizeTagInput(deferredSelectedTag));
   const searchHighlightQuery = globalQuery.trim() || normalizeTagInput(selectedTag);
-  const advancedHighlightQuery =
-    advancedModal.query.trim() ||
-    advancedModal.citationTitle.trim() ||
-    normalizeTagInput(advancedModal.tag);
+  const advancedHighlightQuery = advancedModal.query.trim();
   const centerEntryHighlightQuery = advancedModal.open
     ? advancedHighlightQuery
     : searchHighlightQuery;
 
-  const hasAdvancedSearch = Boolean(
-    deferredAdvancedQuery.trim() ||
-      normalizeTagInput(deferredAdvancedTag) ||
-      deferredAdvancedCitationTitle.trim(),
-  );
+  const hasAdvancedSearch = Boolean(deferredAdvancedQuery.trim());
   const hasAdvancedQueryScope = deferredAdvancedQueryScopes.length > 0;
   const entryListViewportHeight = useContainerHeight(centerPaneScrollRef);
   const searchResultsViewportHeight = useContainerHeight(searchResultsRef);
@@ -1760,11 +1788,11 @@ function App() {
     const criteria: SearchCriteria = {
       query: deferredAdvancedQuery,
       queryScopes: deferredAdvancedQueryScopes,
-      tag: deferredAdvancedTag,
-      citationTitle: deferredAdvancedCitationTitle,
+      tag: "",
+      citationTitle: "",
     };
 
-    if (!criteria.query.trim() && !normalizeTagInput(criteria.tag) && !criteria.citationTitle.trim()) {
+    if (!criteria.query.trim()) {
       startSearchTransition(() => setAdvancedResults([]));
       return;
     }
@@ -1811,10 +1839,8 @@ function App() {
       cancelled = true;
     };
   }, [
-    deferredAdvancedCitationTitle,
     deferredAdvancedQuery,
     deferredAdvancedQueryScopes,
-    deferredAdvancedTag,
     searchIndex,
     startSearchTransition,
   ]);
@@ -2215,7 +2241,24 @@ function App() {
     setDropTargetKey(null);
   }
 
-  function startModalDrag(event: MouseEvent<HTMLElement>, key: string): void {
+  function activateOverlayModal(key: OverlayModalKey): void {
+    setModalOrders((previous) => {
+      const nextOrder = modalOrderCounterRef.current + 1;
+      modalOrderCounterRef.current = nextOrder;
+      return {
+        ...previous,
+        [key]: nextOrder,
+      };
+    });
+  }
+
+  function modalBackdropStyle(key: OverlayModalKey): CSSProperties {
+    return {
+      zIndex: MODAL_BASE_Z_INDEX + modalOrders[key] * MODAL_Z_INDEX_STEP,
+    };
+  }
+
+  function startModalDrag(event: MouseEvent<HTMLElement>, key: OverlayModalKey): void {
     if (event.button !== 0) {
       return;
     }
@@ -2223,6 +2266,7 @@ function App() {
     if (target?.closest("button, input, textarea, select, a")) {
       return;
     }
+    activateOverlayModal(key);
     const origin = modalOffsets[key] ?? { x: 0, y: 0 };
     modalDragStateRef.current = {
       key,
@@ -2379,6 +2423,7 @@ function App() {
       highlightQuery.trim() ||
       (entryHighlightContext?.entryId === entryId ? entryHighlightContext.query : "");
 
+    activateOverlayModal("entry-view");
     setModalState({
       kind: "entry-view",
       entryId,
@@ -2396,6 +2441,7 @@ function App() {
     const resolvedHighlight =
       highlightQuery.trim() ||
       (entryHighlightContext?.entryId === entryId ? entryHighlightContext.query : "");
+    activateOverlayModal("entry-view");
     setModalState({
       kind: "entry-view",
       entryId,
@@ -3324,11 +3370,12 @@ function App() {
         ? activeChapter.id
         : workspace.projects[fallbackProjectId]?.chapterIds[0] ?? "";
 
+    activateOverlayModal("advanced");
     setAdvancedModal({
       open: true,
       query: globalQuery,
       queryScopes: DEFAULT_ADVANCED_QUERY_SCOPES,
-      tag: selectedTag,
+      tag: "",
       citationTitle: "",
       targetMode: "new-project",
       newProjectTitle: "按檢索結果分類",
@@ -3804,6 +3851,41 @@ function App() {
   const viewedEntry = entryViewModal ? workspace.entries[entryViewModal.entryId] ?? null : null;
   const viewedEntryDraft = entryViewModal ? entryViewModal.draft : null;
   const entryViewHighlightQuery = entryViewModal?.highlightQuery?.trim() ?? "";
+  const modalOpenState: Record<OverlayModalKey, boolean> = {
+    storage: storageModalOpen,
+    form: Boolean(formModal),
+    "entry-view": Boolean(entryViewModal),
+    "entry-form": Boolean(entryModal),
+    advanced: advancedModal.open,
+    "merge-project": mergeModal.open,
+    "merge-chapter": chapterMergeModal.open,
+  };
+  const anyOverlayModalOpen = OVERLAY_MODAL_KEYS.some((key) => modalOpenState[key]);
+
+  useEffect(() => {
+    const previous = modalOpenStateRef.current;
+    const openedKeys = OVERLAY_MODAL_KEYS.filter((key) => modalOpenState[key] && !previous[key]);
+    modalOpenStateRef.current = { ...modalOpenState };
+    if (openedKeys.length === 0) {
+      return;
+    }
+    setModalOrders((previousOrders) => {
+      const nextOrders = { ...previousOrders };
+      for (const key of openedKeys) {
+        modalOrderCounterRef.current += 1;
+        nextOrders[key] = modalOrderCounterRef.current;
+      }
+      return nextOrders;
+    });
+  }, [
+    advancedModal.open,
+    chapterMergeModal.open,
+    Boolean(entryModal),
+    Boolean(entryViewModal),
+    Boolean(formModal),
+    mergeModal.open,
+    storageModalOpen,
+  ]);
 
   return (
     <>
@@ -4574,12 +4656,17 @@ function App() {
         </div>
       )}
 
+      {anyOverlayModalOpen && <div className="modal-stack-overlay" />}
+
       {storageModalOpen && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" style={modalBackdropStyle("storage")}>
           <div
             className="modal-card modal-large draggable-modal"
             style={modalCardStyle("storage")}
-            onMouseDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => {
+              activateOverlayModal("storage");
+              event.stopPropagation();
+            }}
           >
             <div className="modal-head modal-drag-handle" onMouseDown={(event) => startModalDrag(event, "storage")}>
               <h3>檔案資料管理</h3>
@@ -4646,11 +4733,14 @@ function App() {
       )}
 
       {formModal && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" style={modalBackdropStyle("form")}>
           <div
             className="modal-card draggable-modal"
             style={modalCardStyle("form")}
-            onMouseDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => {
+              activateOverlayModal("form");
+              event.stopPropagation();
+            }}
           >
             <div className="modal-head modal-drag-handle" onMouseDown={(event) => startModalDrag(event, "form")}>
               <h3>
@@ -4701,11 +4791,14 @@ function App() {
       )}
 
       {entryViewModal && viewedEntry && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" style={modalBackdropStyle("entry-view")}>
           <div
             className="modal-card modal-large entry-view-modal draggable-modal"
             style={modalCardStyle("entry-view")}
-            onMouseDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => {
+              activateOverlayModal("entry-view");
+              event.stopPropagation();
+            }}
           >
             <div
               className="modal-head entry-view-head modal-drag-handle"
@@ -4907,11 +5000,14 @@ function App() {
       )}
 
       {entryModal && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" style={modalBackdropStyle("entry-form")}>
           <div
             className="modal-card modal-large draggable-modal"
             style={modalCardStyle("entry-form")}
-            onMouseDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => {
+              activateOverlayModal("entry-form");
+              event.stopPropagation();
+            }}
           >
             <div
               className="modal-head modal-drag-handle"
@@ -5016,18 +5112,21 @@ function App() {
       )}
 
       {advancedModal.open && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" style={modalBackdropStyle("advanced")}>
           <div
             className="modal-card modal-xl draggable-modal"
             style={modalCardStyle("advanced")}
-            onMouseDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => {
+              activateOverlayModal("advanced");
+              event.stopPropagation();
+            }}
           >
             <div
               className="modal-head modal-drag-handle"
               onMouseDown={(event) => startModalDrag(event, "advanced")}
             >
               <h3>高級檢索</h3>
-              <p className="meta-text">以關鍵字、標籤、引文檢索，並將結果匯入至專案或章節。</p>
+              <p className="meta-text">以關鍵字檢索，並將結果匯入至專案或章節。</p>
             </div>
 
             <div className="modal-grid advanced-modal-body advanced-layout">
@@ -5042,36 +5141,6 @@ function App() {
                         setAdvancedModal((state) => ({ ...state, query: event.target.value }))
                       }
                       placeholder="檢索時間、摘要、史料文本、備註、引文註釋..."
-                    />
-                  </label>
-
-                  <label className="modal-label">
-                    標籤（可選）
-                    <input
-                      list="advanced-tag-list"
-                      value={advancedModal.tag}
-                      onFocus={() => setNavigationScope("advanced")}
-                      onChange={(event) =>
-                        setAdvancedModal((state) => ({ ...state, tag: event.target.value }))
-                      }
-                      placeholder="如：#人物、#政治"
-                    />
-                    <datalist id="advanced-tag-list">
-                      {allTags.map((tag) => (
-                        <option key={`advanced-${tag}`} value={tag} />
-                      ))}
-                    </datalist>
-                  </label>
-
-                  <label className="modal-label">
-                    引文《》書名（可選）
-                    <input
-                      value={advancedModal.citationTitle}
-                      onFocus={() => setNavigationScope("advanced")}
-                      onChange={(event) =>
-                        setAdvancedModal((state) => ({ ...state, citationTitle: event.target.value }))
-                      }
-                      placeholder="如：明史 / 資治通鑑"
                     />
                   </label>
                 </div>
@@ -5107,28 +5176,6 @@ function App() {
                     })}
                   </div>
                 </section>
-
-                <div className="advanced-left-actions">
-                  <p className="result-meta">
-                    {hasAdvancedSearch
-                      ? `共 ${advancedResults.length} 條結果`
-                      : "請至少輸入一個檢索條件。"}
-                  </p>
-                  <button
-                    className="ghost-btn"
-                    onClick={() =>
-                      setAdvancedModal((state) => ({
-                        ...state,
-                        query: "",
-                        queryScopes: DEFAULT_ADVANCED_QUERY_SCOPES,
-                        tag: "",
-                        citationTitle: "",
-                      }))
-                    }
-                  >
-                    清空條件
-                  </button>
-                </div>
 
                 <section className="advanced-destination">
                 <p className="eyebrow">結果匯入</p>
@@ -5253,6 +5300,11 @@ function App() {
               <section className="advanced-right-column">
                 <div className="advanced-results-head">
                   <p className="eyebrow">檢索預覽</p>
+                  <p className="result-meta">
+                    {hasAdvancedSearch
+                      ? `共 ${advancedResults.length} 條結果`
+                      : "請至少輸入一個檢索條件。"}
+                  </p>
                 </div>
 
                 <div
@@ -5375,11 +5427,14 @@ function App() {
       )}
 
       {mergeModal.open && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" style={modalBackdropStyle("merge-project")}>
           <div
             className="modal-card modal-large draggable-modal"
             style={modalCardStyle("merge-project")}
-            onMouseDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => {
+              activateOverlayModal("merge-project");
+              event.stopPropagation();
+            }}
           >
             <div
               className="modal-head modal-drag-handle"
@@ -5461,11 +5516,14 @@ function App() {
       )}
 
       {chapterMergeModal.open && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" style={modalBackdropStyle("merge-chapter")}>
           <div
             className="modal-card modal-large draggable-modal"
             style={modalCardStyle("merge-chapter")}
-            onMouseDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => {
+              activateOverlayModal("merge-chapter");
+              event.stopPropagation();
+            }}
           >
             <div
               className="modal-head modal-drag-handle"
