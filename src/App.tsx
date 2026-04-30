@@ -271,6 +271,14 @@ interface EntryMenuState {
 
 type ContextMenuState = ProjectMenuState | ChapterMenuState | EntryMenuState;
 
+interface ModalDragState {
+  key: string;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+}
+
 interface MergeModalState {
   open: boolean;
   mode: "into-active" | "as-new";
@@ -294,13 +302,13 @@ type AdvancedQueryScope =
   | "citation";
 
 const ADVANCED_QUERY_SCOPE_OPTIONS: Array<{ value: AdvancedQueryScope; label: string }> = [
-  { value: "project", label: "專案名稱" },
-  { value: "chapter", label: "章節名稱" },
+  { value: "project", label: "專案" },
+  { value: "chapter", label: "章節" },
   { value: "time", label: "時間" },
   { value: "summary", label: "摘要" },
-  { value: "source", label: "史料文本" },
+  { value: "source", label: "史料" },
   { value: "note", label: "備註" },
-  { value: "citation", label: "引文註釋" },
+  { value: "citation", label: "引文" },
 ];
 
 const DEFAULT_ADVANCED_QUERY_SCOPES: AdvancedQueryScope[] = ADVANCED_QUERY_SCOPE_OPTIONS.map(
@@ -1200,6 +1208,7 @@ function App() {
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [navigationScope, setNavigationScope] = useState<NavigationScope>("entry");
+  const [modalOffsets, setModalOffsets] = useState<Record<string, { x: number; y: number }>>({});
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [advancedResults, setAdvancedResults] = useState<SearchResult[]>([]);
   const [selectedSearchResultEntryId, setSelectedSearchResultEntryId] = useState<string | null>(null);
@@ -1262,6 +1271,7 @@ function App() {
   const advancedSearchRequestRef = useRef(0);
   const chapterSelectionAnchorRef = useRef<string | null>(null);
   const entrySelectionAnchorRef = useRef<string | null>(null);
+  const modalDragStateRef = useRef<ModalDragState | null>(null);
 
   const activeProject = workspace.activeProjectId
     ? workspace.projects[workspace.activeProjectId] ?? null
@@ -1398,6 +1408,40 @@ function App() {
       setNavigationScope("search");
     }
   }, [advancedModal.open, navigationScope]);
+
+  useEffect(() => {
+    function handlePointerMove(event: PointerEvent): void {
+      const dragState = modalDragStateRef.current;
+      if (!dragState) {
+        return;
+      }
+      const nextX = dragState.originX + (event.clientX - dragState.startX);
+      const nextY = dragState.originY + (event.clientY - dragState.startY);
+      setModalOffsets((previous) => {
+        const current = previous[dragState.key] ?? { x: 0, y: 0 };
+        if (current.x === nextX && current.y === nextY) {
+          return previous;
+        }
+        return {
+          ...previous,
+          [dragState.key]: { x: nextX, y: nextY },
+        };
+      });
+    }
+
+    function handlePointerRelease(): void {
+      modalDragStateRef.current = null;
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerRelease);
+    window.addEventListener("pointercancel", handlePointerRelease);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerRelease);
+      window.removeEventListener("pointercancel", handlePointerRelease);
+    };
+  }, []);
 
   useEffect(() => {
     const elements = [
@@ -1940,8 +1984,13 @@ function App() {
       const isTypingTarget = Boolean(
         target?.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]'),
       );
+      const isArrowNavigationKey = event.key === "ArrowDown" || event.key === "ArrowUp";
+      const allowArrowNavigationFromTypingTarget =
+        isArrowNavigationKey && (navigationScope === "search" || (navigationScope === "advanced" && advancedModal.open));
       if (isTypingTarget) {
-        return;
+        if (!allowArrowNavigationFromTypingTarget) {
+          return;
+        }
       }
       if (modalState || contextMenu) {
         return;
@@ -2007,7 +2056,7 @@ function App() {
         return;
       }
 
-      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+      if (!isArrowNavigationKey) {
         return;
       }
 
@@ -2164,6 +2213,33 @@ function App() {
     setDragPayload(null);
     setDraggingKey(null);
     setDropTargetKey(null);
+  }
+
+  function startModalDrag(event: MouseEvent<HTMLElement>, key: string): void {
+    if (event.button !== 0) {
+      return;
+    }
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest("button, input, textarea, select, a")) {
+      return;
+    }
+    const origin = modalOffsets[key] ?? { x: 0, y: 0 };
+    modalDragStateRef.current = {
+      key,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: origin.x,
+      originY: origin.y,
+    };
+    event.preventDefault();
+  }
+
+  function modalCardStyle(key: string): CSSProperties {
+    const offset = modalOffsets[key];
+    if (!offset) {
+      return {};
+    }
+    return { transform: `translate(${offset.x}px, ${offset.y}px)` };
   }
 
   function selectProject(projectId: string): void {
@@ -4499,9 +4575,13 @@ function App() {
       )}
 
       {storageModalOpen && (
-        <div className="modal-backdrop" onMouseDown={() => setStorageModalOpen(false)}>
-          <div className="modal-card modal-large" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head">
+        <div className="modal-backdrop">
+          <div
+            className="modal-card modal-large draggable-modal"
+            style={modalCardStyle("storage")}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modal-head modal-drag-handle" onMouseDown={(event) => startModalDrag(event, "storage")}>
               <h3>檔案資料管理</h3>
               <p className="meta-text">手動管理專案與史料資料檔的存放位置。</p>
             </div>
@@ -4566,9 +4646,13 @@ function App() {
       )}
 
       {formModal && (
-        <div className="modal-backdrop" onMouseDown={() => setModalState(null)}>
-          <div className="modal-card" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head">
+        <div className="modal-backdrop">
+          <div
+            className="modal-card draggable-modal"
+            style={modalCardStyle("form")}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modal-head modal-drag-handle" onMouseDown={(event) => startModalDrag(event, "form")}>
               <h3>
                 {formModal.kind === "project-create" && "新增專案"}
                 {formModal.kind === "project-rename" && "編輯專案名"}
@@ -4617,9 +4701,16 @@ function App() {
       )}
 
       {entryViewModal && viewedEntry && (
-        <div className="modal-backdrop" onMouseDown={() => setModalState(null)}>
-          <div className="modal-card modal-large entry-view-modal" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head entry-view-head">
+        <div className="modal-backdrop">
+          <div
+            className="modal-card modal-large entry-view-modal draggable-modal"
+            style={modalCardStyle("entry-view")}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div
+              className="modal-head entry-view-head modal-drag-handle"
+              onMouseDown={(event) => startModalDrag(event, "entry-view")}
+            >
               <div className="entry-view-head-main">
                 <h3>{entryViewModal.editing ? "檢視 / 編輯史料" : "檢視史料"}</h3>
                 <p className="meta-text">
@@ -4816,9 +4907,16 @@ function App() {
       )}
 
       {entryModal && (
-        <div className="modal-backdrop" onMouseDown={() => setModalState(null)}>
-          <div className="modal-card modal-large" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head">
+        <div className="modal-backdrop">
+          <div
+            className="modal-card modal-large draggable-modal"
+            style={modalCardStyle("entry-form")}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div
+              className="modal-head modal-drag-handle"
+              onMouseDown={(event) => startModalDrag(event, "entry-form")}
+            >
               <h3>{entryModal.kind === "entry-create" ? "新增史料" : "編輯史料"}</h3>
               <p className="meta-text">五元素：時間 / 摘要 / 史料文本 / 備註 / 引文註釋；備註支持 `#標籤`。</p>
             </div>
@@ -4918,9 +5016,16 @@ function App() {
       )}
 
       {advancedModal.open && (
-        <div className="modal-backdrop" onMouseDown={() => setAdvancedModal((state) => ({ ...state, open: false }))}>
-          <div className="modal-card modal-xl" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head">
+        <div className="modal-backdrop">
+          <div
+            className="modal-card modal-xl draggable-modal"
+            style={modalCardStyle("advanced")}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div
+              className="modal-head modal-drag-handle"
+              onMouseDown={(event) => startModalDrag(event, "advanced")}
+            >
               <h3>高級檢索</h3>
               <p className="meta-text">以關鍵字、標籤、引文檢索，並將結果匯入至專案或章節。</p>
             </div>
@@ -5148,7 +5253,6 @@ function App() {
               <section className="advanced-right-column">
                 <div className="advanced-results-head">
                   <p className="eyebrow">檢索預覽</p>
-                  <p className="meta-text">可用 ↑ / ↓ 切換</p>
                 </div>
 
                 <div
@@ -5256,14 +5360,14 @@ function App() {
 
             <div className="modal-actions">
               <button className="ghost-btn" onClick={() => setAdvancedModal((state) => ({ ...state, open: false }))}>
-                取消
+                確定
               </button>
               <button
                 className="secondary-btn"
                 onClick={importAdvancedResults}
                 disabled={!hasAdvancedSearch || advancedResults.length === 0}
               >
-                匯入檢索結果
+                匯出檢索結果
               </button>
             </div>
           </div>
@@ -5271,9 +5375,16 @@ function App() {
       )}
 
       {mergeModal.open && (
-        <div className="modal-backdrop" onMouseDown={() => setMergeModal((state) => ({ ...state, open: false }))}>
-          <div className="modal-card modal-large" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head">
+        <div className="modal-backdrop">
+          <div
+            className="modal-card modal-large draggable-modal"
+            style={modalCardStyle("merge-project")}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div
+              className="modal-head modal-drag-handle"
+              onMouseDown={(event) => startModalDrag(event, "merge-project")}
+            >
               <h3>合併專案</h3>
               <p className="meta-text">可合併到當前專案，或合併並生成新的專案。</p>
             </div>
@@ -5350,12 +5461,16 @@ function App() {
       )}
 
       {chapterMergeModal.open && (
-        <div
-          className="modal-backdrop"
-          onMouseDown={() => setChapterMergeModal((state) => ({ ...state, open: false }))}
-        >
-          <div className="modal-card modal-large" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head">
+        <div className="modal-backdrop">
+          <div
+            className="modal-card modal-large draggable-modal"
+            style={modalCardStyle("merge-chapter")}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div
+              className="modal-head modal-drag-handle"
+              onMouseDown={(event) => startModalDrag(event, "merge-chapter")}
+            >
               <h3>合併章節</h3>
               <p className="meta-text">選擇多個章節，合併為目標專案中的新章節（不刪除來源章節）。</p>
             </div>

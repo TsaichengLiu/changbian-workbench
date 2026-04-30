@@ -837,6 +837,28 @@ h3 {
   gap: 6px;
 }
 
+.modal-drag-handle {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.modal-drag-handle:active {
+  cursor: grabbing;
+}
+
+.modal-drag-handle button,
+.modal-drag-handle input,
+.modal-drag-handle textarea,
+.modal-drag-handle select,
+.modal-drag-handle a {
+  cursor: pointer;
+}
+
+.draggable-modal {
+  will-change: transform;
+}
+
 .modal-grid {
   display: flex;
   flex-direction: column;
@@ -1116,9 +1138,7 @@ h3 {
 
 .advanced-scope-item span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .advanced-results-head {
