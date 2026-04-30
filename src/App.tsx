@@ -1093,6 +1093,11 @@ const ENTRY_VIRTUAL_ROW_HEIGHT = 256;
 const SEARCH_RESULT_VIRTUAL_ROW_HEIGHT = 188;
 const ADVANCED_RESULT_VIRTUAL_ROW_HEIGHT = 236;
 const VIRTUAL_OVERSCAN_COUNT = 6;
+const ENTRY_VIRTUALIZE_THRESHOLD = 80;
+const SEARCH_RESULT_VIRTUALIZE_THRESHOLD = 80;
+const ADVANCED_RESULT_VIRTUALIZE_THRESHOLD = 80;
+
+type NavigationScope = "entry" | "chapter" | "project";
 
 type SearchWorkerChannel = "global" | "advanced";
 
@@ -1194,6 +1199,7 @@ function App() {
   const [selectedTag, setSelectedTag] = useState<string>("");
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
+  const [navigationScope, setNavigationScope] = useState<NavigationScope>("entry");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [advancedResults, setAdvancedResults] = useState<SearchResult[]>([]);
   const [entryListScrollTop, setEntryListScrollTop] = useState(0);
@@ -1386,9 +1392,13 @@ function App() {
   }, [workspace]);
 
   useEffect(() => {
-    const elements = [leftPaneScrollRef.current, centerPaneScrollRef.current, rightPaneScrollRef.current].filter(
-      (node): node is HTMLElement => Boolean(node),
-    );
+    const elements = [
+      leftPaneScrollRef.current,
+      centerPaneScrollRef.current,
+      rightPaneScrollRef.current,
+      searchResultsRef.current,
+      advancedResultsRef.current,
+    ].filter((node): node is HTMLElement => Boolean(node));
     if (elements.length === 0) {
       return;
     }
@@ -1423,7 +1433,7 @@ function App() {
         window.clearTimeout(timer);
       }
     };
-  }, []);
+  }, [advancedModal.open]);
 
   const searchIndex = useMemo(() => buildSearchIndex(workspace), [workspace]);
 
@@ -1459,16 +1469,34 @@ function App() {
   const entryListViewportHeight = useContainerHeight(centerPaneScrollRef);
   const searchResultsViewportHeight = useContainerHeight(searchResultsRef);
   const advancedResultsViewportHeight = useContainerHeight(advancedResultsRef);
+  const shouldVirtualizeEntries =
+    currentEntries.length > ENTRY_VIRTUALIZE_THRESHOLD && entryListViewportHeight > 0;
+  const shouldVirtualizeSearchResults =
+    searchResults.length > SEARCH_RESULT_VIRTUALIZE_THRESHOLD && searchResultsViewportHeight > 0;
+  const shouldVirtualizeAdvancedResults =
+    advancedResults.length > ADVANCED_RESULT_VIRTUALIZE_THRESHOLD && advancedResultsViewportHeight > 0;
 
   const entryVirtualRange = useMemo(
     () =>
-      computeVirtualRange(
-        currentEntries.length,
-        ENTRY_VIRTUAL_ROW_HEIGHT,
-        entryListScrollTop,
-        entryListViewportHeight,
-      ),
-    [currentEntries.length, entryListScrollTop, entryListViewportHeight],
+      shouldVirtualizeEntries
+        ? computeVirtualRange(
+            currentEntries.length,
+            ENTRY_VIRTUAL_ROW_HEIGHT,
+            entryListScrollTop,
+            entryListViewportHeight,
+          )
+        : {
+            start: 0,
+            end: currentEntries.length,
+            topSpacer: 0,
+            bottomSpacer: 0,
+          },
+    [
+      shouldVirtualizeEntries,
+      currentEntries.length,
+      entryListScrollTop,
+      entryListViewportHeight,
+    ],
   );
   const visibleEntries = useMemo(
     () => currentEntries.slice(entryVirtualRange.start, entryVirtualRange.end),
@@ -1477,13 +1505,25 @@ function App() {
 
   const searchVirtualRange = useMemo(
     () =>
-      computeVirtualRange(
-        searchResults.length,
-        SEARCH_RESULT_VIRTUAL_ROW_HEIGHT,
-        searchResultsScrollTop,
-        searchResultsViewportHeight,
-      ),
-    [searchResults.length, searchResultsScrollTop, searchResultsViewportHeight],
+      shouldVirtualizeSearchResults
+        ? computeVirtualRange(
+            searchResults.length,
+            SEARCH_RESULT_VIRTUAL_ROW_HEIGHT,
+            searchResultsScrollTop,
+            searchResultsViewportHeight,
+          )
+        : {
+            start: 0,
+            end: searchResults.length,
+            topSpacer: 0,
+            bottomSpacer: 0,
+          },
+    [
+      shouldVirtualizeSearchResults,
+      searchResults.length,
+      searchResultsScrollTop,
+      searchResultsViewportHeight,
+    ],
   );
   const visibleSearchResults = useMemo(
     () => searchResults.slice(searchVirtualRange.start, searchVirtualRange.end),
@@ -1492,13 +1532,21 @@ function App() {
 
   const advancedVirtualRange = useMemo(
     () =>
-      computeVirtualRange(
-        advancedResults.length,
-        ADVANCED_RESULT_VIRTUAL_ROW_HEIGHT,
-        advancedResultsScrollTop,
-        advancedResultsViewportHeight,
-      ),
+      shouldVirtualizeAdvancedResults
+        ? computeVirtualRange(
+            advancedResults.length,
+            ADVANCED_RESULT_VIRTUAL_ROW_HEIGHT,
+            advancedResultsScrollTop,
+            advancedResultsViewportHeight,
+          )
+        : {
+            start: 0,
+            end: advancedResults.length,
+            topSpacer: 0,
+            bottomSpacer: 0,
+          },
     [
+      shouldVirtualizeAdvancedResults,
       advancedResults.length,
       advancedResultsScrollTop,
       advancedResultsViewportHeight,
@@ -1848,7 +1896,146 @@ function App() {
         setAdvancedModal((state) => ({ ...state, open: false }));
         setChapterMergeModal((state) => ({ ...state, open: false }));
         setStorageModalOpen(false);
+        return;
       }
+
+      const target = event.target instanceof Element ? event.target : null;
+      const isTypingTarget = Boolean(
+        target?.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]'),
+      );
+      if (isTypingTarget) {
+        return;
+      }
+      if (modalState || contextMenu) {
+        return;
+      }
+
+      const isModifierPressed = event.metaKey || event.ctrlKey;
+      const key = event.key.toLocaleLowerCase();
+      if (isModifierPressed && !event.altKey && key === "c") {
+        const selectedText = window.getSelection?.()?.toString().trim() ?? "";
+        if (selectedText.length > 0) {
+          return;
+        }
+        if (selectedEntryIds.length > 0) {
+          event.preventDefault();
+          const orderedEntryIds = currentEntryIds.filter((entryId) => selectedEntryIdSet.has(entryId));
+          if (orderedEntryIds.length > 0) {
+            copyEntriesToClipboard(orderedEntryIds);
+          }
+          return;
+        }
+        if (selectedChapterIds.length > 0 && activeProject) {
+          event.preventDefault();
+          const orderedChapterIds = activeProject.chapterIds.filter((chapterId) => selectedChapterIdSet.has(chapterId));
+          if (orderedChapterIds.length > 0) {
+            copyChaptersToClipboard(orderedChapterIds);
+          }
+          return;
+        }
+        if (activeChapter) {
+          event.preventDefault();
+          copyChaptersToClipboard([activeChapter.id]);
+          return;
+        }
+        if (activeProject) {
+          event.preventDefault();
+          copyCurrentProject(activeProject.id);
+        }
+        return;
+      }
+
+      if (isModifierPressed && !event.altKey && key === "v") {
+        if (!clipboard) {
+          return;
+        }
+        if (clipboard.kind === "entry" && activeProject) {
+          event.preventDefault();
+          pasteEntryFromToolbar();
+          return;
+        }
+        if (clipboard.kind === "chapter" && activeProject) {
+          event.preventDefault();
+          pasteChapterFromToolbar();
+          return;
+        }
+        if (clipboard.kind === "project") {
+          event.preventDefault();
+          pasteProjectFromClipboard(activeProject?.id ?? null);
+        }
+        return;
+      }
+
+      if (event.altKey || event.metaKey || event.ctrlKey) {
+        return;
+      }
+
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+        return;
+      }
+
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      const moveSelection = (orderedIds: string[], currentId: string | null): string | null => {
+        if (orderedIds.length === 0) {
+          return null;
+        }
+        const currentIndex = currentId ? orderedIds.indexOf(currentId) : -1;
+        const baseIndex = currentIndex >= 0 ? currentIndex : delta > 0 ? -1 : orderedIds.length;
+        const nextIndex = Math.min(orderedIds.length - 1, Math.max(0, baseIndex + delta));
+        return orderedIds[nextIndex] ?? null;
+      };
+
+      if (navigationScope === "entry" && currentEntryIds.length > 0) {
+        const orderedSelectedEntryIds = currentEntryIds.filter((entryId) => selectedEntryIdSet.has(entryId));
+        const currentId =
+          orderedSelectedEntryIds[orderedSelectedEntryIds.length - 1] ??
+          (workspace.selectedEntryId && currentEntryIds.includes(workspace.selectedEntryId)
+            ? workspace.selectedEntryId
+            : null);
+        const nextEntryId = moveSelection(currentEntryIds, currentId);
+        if (!nextEntryId) {
+          return;
+        }
+        mutateWorkspace((draft) => {
+          draft.selectedEntryId = nextEntryId;
+        });
+        setSelectedEntryIds([nextEntryId]);
+        entrySelectionAnchorRef.current = nextEntryId;
+        setNavigationScope("entry");
+        window.requestAnimationFrame(() => {
+          const node = document.querySelector<HTMLElement>(`[data-entry-id="${nextEntryId}"]`);
+          node?.scrollIntoView({ block: "nearest" });
+        });
+        return;
+      }
+
+      if (navigationScope === "chapter" && activeProject) {
+        const chapterOrder = activeProject.chapterIds.filter((chapterId) => Boolean(workspace.chapters[chapterId]));
+        const currentChapterId =
+          chapterOrder.find((chapterId) => selectedChapterIdSet.has(chapterId)) ??
+          (activeChapter?.projectId === activeProject.id ? activeChapter.id : null);
+        const nextChapterId = moveSelection(chapterOrder, currentChapterId);
+        if (nextChapterId) {
+          selectChapter(activeProject.id, nextChapterId);
+          window.requestAnimationFrame(() => {
+            const node = document.querySelector<HTMLElement>(`[data-chapter-id="${nextChapterId}"]`);
+            node?.scrollIntoView({ block: "nearest" });
+          });
+          return;
+        }
+      }
+
+      const projectOrder = workspace.projectOrder.filter((projectId) => Boolean(workspace.projects[projectId]));
+      const nextProjectId = moveSelection(projectOrder, activeProject?.id ?? workspace.activeProjectId ?? null);
+      if (!nextProjectId) {
+        return;
+      }
+      selectProject(nextProjectId);
+      window.requestAnimationFrame(() => {
+        const node = document.querySelector<HTMLElement>(`[data-project-id="${nextProjectId}"]`);
+        node?.scrollIntoView({ block: "nearest" });
+      });
     }
 
     window.addEventListener("pointerdown", handlePointerDown);
@@ -1858,7 +2045,24 @@ function App() {
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [
+    activeChapter,
+    activeProject,
+    clipboard,
+    contextMenu,
+    currentEntryIds,
+    modalState,
+    navigationScope,
+    selectedChapterIdSet,
+    selectedChapterIds,
+    selectedEntryIdSet,
+    selectedEntryIds,
+    workspace.activeProjectId,
+    workspace.chapters,
+    workspace.projectOrder,
+    workspace.projects,
+    workspace.selectedEntryId,
+  ]);
 
   function mutateWorkspace(mutator: (draft: WorkspaceData) => void): void {
     setWorkspace((previous) => {
@@ -1891,6 +2095,7 @@ function App() {
     setSelectedEntryIds([]);
     chapterSelectionAnchorRef.current = null;
     entrySelectionAnchorRef.current = null;
+    setNavigationScope("project");
   }
 
   function selectChapter(projectId: string, chapterId: string): void {
@@ -1904,6 +2109,7 @@ function App() {
     setSelectedEntryIds([]);
     chapterSelectionAnchorRef.current = chapterId;
     entrySelectionAnchorRef.current = null;
+    setNavigationScope("chapter");
   }
 
   function handleChapterClick(event: MouseEvent<HTMLButtonElement>, projectId: string, chapterId: string): void {
@@ -1931,6 +2137,7 @@ function App() {
       setSelectedChapterIds([chapterId]);
       chapterSelectionAnchorRef.current = chapterId;
     }
+    setNavigationScope("chapter");
   }
 
   function handleEntryCardClick(event: MouseEvent<HTMLElement>, entryId: string): void {
@@ -1951,6 +2158,7 @@ function App() {
       setSelectedEntryIds([entryId]);
       entrySelectionAnchorRef.current = entryId;
     }
+    setNavigationScope("entry");
   }
 
   function jumpToSearchResult(result: SearchResult, highlightQuery = ""): void {
@@ -1968,6 +2176,7 @@ function App() {
           }
         : null,
     );
+    setNavigationScope("entry");
   }
 
   function beginCreateProject(insertAfterProjectId: string | null = null): void {
@@ -2038,18 +2247,21 @@ function App() {
     });
   }
 
-  function beginCreateEntryAfter(entryId: string): void {
-    const entry = workspace.entries[entryId];
-    if (!entry) {
-      return;
+  function resolveEntryInsertAfterIdForCurrentScope(fallbackEntryId: string | null = null): string | null {
+    if (!activeProject) {
+      return null;
     }
-    setModalState({
-      kind: "entry-create",
-      projectId: entry.projectId,
-      chapterId: entry.chapterId,
-      insertAfterEntryId: entry.id,
-      draft: createEmptyEntryDraft(),
-    });
+    const chapterId = activeChapter?.id ?? null;
+    const orderedSelectedEntryIds = currentEntryIds.filter((entryId) => selectedEntryIdSet.has(entryId));
+    const preferredEntryId =
+      orderedSelectedEntryIds.length > 0
+        ? orderedSelectedEntryIds[orderedSelectedEntryIds.length - 1]
+        : fallbackEntryId;
+    return resolveInsertAfterEntryId(workspace, activeProject.id, chapterId, preferredEntryId);
+  }
+
+  function beginCreateEntryAfter(entryId: string): void {
+    createEntry(entryId);
   }
 
   function copyCurrentProject(projectId: string): void {
@@ -2278,7 +2490,7 @@ function App() {
         draft,
         targetProject.id,
         scopedChapterId,
-        normalizedInsertAfterEntryId ?? draft.selectedEntryId,
+        normalizedInsertAfterEntryId ?? null,
       );
       let insertAfterId = safeInsertAfterEntryId;
       let lastEntryId: string | null = null;
@@ -2307,9 +2519,7 @@ function App() {
     if (!activeProject) {
       return;
     }
-    const orderedSelectedEntryIds = currentEntryIds.filter((entryId) => selectedEntryIdSet.has(entryId));
-    const insertAfterEntryId =
-      orderedSelectedEntryIds.length > 0 ? orderedSelectedEntryIds[orderedSelectedEntryIds.length - 1] : undefined;
+    const insertAfterEntryId = resolveEntryInsertAfterIdForCurrentScope(null);
     pasteEntryFromClipboard(activeProject.id, activeChapter?.id ?? null, insertAfterEntryId);
   }
 
@@ -2320,6 +2530,7 @@ function App() {
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "project", projectId, x, y });
+    setNavigationScope("project");
   }
 
   function openChapterContextMenu(event: MouseEvent, chapterId: string): void {
@@ -2335,6 +2546,7 @@ function App() {
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "chapter", chapterId, x, y });
+    setNavigationScope("chapter");
   }
 
   function openEntryContextMenu(event: MouseEvent, entryId: string): void {
@@ -2353,6 +2565,7 @@ function App() {
     const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
     const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
     setContextMenu({ kind: "entry", entryId, x, y });
+    setNavigationScope("entry");
   }
 
   function applyFormModal(): void {
@@ -2768,18 +2981,13 @@ function App() {
     }
   }
 
-  function createEntry(): void {
+  function createEntry(fallbackEntryId: string | null = null): void {
     if (!activeProject) {
       return;
     }
 
     const chapterId = activeChapter?.id ?? null;
-    const insertAfterEntryId = resolveInsertAfterEntryId(
-      workspace,
-      activeProject.id,
-      chapterId,
-      workspace.selectedEntryId,
-    );
+    const insertAfterEntryId = resolveEntryInsertAfterIdForCurrentScope(fallbackEntryId);
     setModalState({
       kind: "entry-create",
       projectId: activeProject.id,
@@ -3544,6 +3752,7 @@ function App() {
 
                     <button
                       className="project-main"
+                      data-project-id={project.id}
                       onClick={() => selectProject(project.id)}
                       onContextMenu={(event) => openProjectContextMenu(event, project.id)}
                       title="右鍵可編輯專案名"
@@ -3596,6 +3805,7 @@ function App() {
 
                           <button
                             className="chapter-main"
+                            data-chapter-id={chapter.id}
                             onClick={(event) => handleChapterClick(event, project.id, chapter.id)}
                             onContextMenu={(event) => openChapterContextMenu(event, chapter.id)}
                             title={chapter.title}
@@ -3655,7 +3865,7 @@ function App() {
               </div>
             ) : (
               <>
-                <div style={{ height: `${entryVirtualRange.topSpacer}px` }} />
+                {shouldVirtualizeEntries && <div style={{ height: `${entryVirtualRange.topSpacer}px` }} />}
                 {visibleEntries.map((entry) => {
                 const isSelected = selectedEntry?.id === entry.id || selectedEntryIdSet.has(entry.id);
                 const entryDragKey = `entry:${entry.id}`;
@@ -3677,7 +3887,13 @@ function App() {
                 return (
                   <article
                     key={entry.id}
+                    data-entry-id={entry.id}
                     className={`entry-card virtualized-row ${isSelected ? "selected" : ""} ${dropTargetKey === entryDropKey ? "drop-target" : ""}`}
+                    onMouseDown={(event) => {
+                      if (event.shiftKey) {
+                        event.preventDefault();
+                      }
+                    }}
                     onClick={(event) => handleEntryCardClick(event, entry.id)}
                     onDoubleClick={() => beginViewEntry(entry.id, centerEntryHighlightQuery)}
                     onContextMenu={(event) => openEntryContextMenu(event, entry.id)}
@@ -3800,7 +4016,7 @@ function App() {
                   </article>
                 );
                 })}
-                <div style={{ height: `${entryVirtualRange.bottomSpacer}px` }} />
+                {shouldVirtualizeEntries && <div style={{ height: `${entryVirtualRange.bottomSpacer}px` }} />}
               </>
             )}
           </section>
@@ -3851,7 +4067,9 @@ function App() {
                   <p className="empty-inline">未檢索到符合內容。</p>
                 ) : (
                   <>
-                    <div style={{ height: `${searchVirtualRange.topSpacer}px` }} />
+                    {shouldVirtualizeSearchResults && (
+                      <div style={{ height: `${searchVirtualRange.topSpacer}px` }} />
+                    )}
                     {visibleSearchResults.map((result) => {
                     const entry = workspace.entries[result.entryId];
                     const sourcePreview = summarizeAroundMatch(
@@ -3923,7 +4141,9 @@ function App() {
                       </button>
                     );
                     })}
-                    <div style={{ height: `${searchVirtualRange.bottomSpacer}px` }} />
+                    {shouldVirtualizeSearchResults && (
+                      <div style={{ height: `${searchVirtualRange.bottomSpacer}px` }} />
+                    )}
                   </>
                 )
               ) : (
@@ -3985,15 +4205,6 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
-                  pasteProjectFromClipboard(contextMenu.projectId);
-                  setContextMenu(null);
-                }}
-              >
-                粘貼專案
-              </button>
-              <button
-                className="context-item"
-                onClick={() => {
                   beginRenameProject(contextMenu.projectId);
                   setContextMenu(null);
                 }}
@@ -4011,6 +4222,15 @@ function App() {
               </button>
               <button
                 className="context-item"
+                onClick={() => {
+                  pasteProjectFromClipboard(contextMenu.projectId);
+                  setContextMenu(null);
+                }}
+              >
+                粘貼專案
+              </button>
+              <button
+                className="context-item context-danger"
                 onClick={() => {
                   deleteProject(contextMenu.projectId);
                   setContextMenu(null);
@@ -4032,24 +4252,6 @@ function App() {
                 }}
               >
                 新增章節
-              </button>
-              <button
-                className="context-item"
-                onClick={() => {
-                  const chapter = workspace.chapters[contextMenu.chapterId];
-                  if (chapter) {
-                    const selectedChapterIdsForAction = collectOrderedChapterIdsForContext(
-                      chapter.id,
-                      chapterSelectionForMenu,
-                    );
-                    const insertAfterChapterId =
-                      selectedChapterIdsForAction[selectedChapterIdsForAction.length - 1] ?? chapter.id;
-                    pasteChapterFromClipboard(chapter.projectId, insertAfterChapterId);
-                  }
-                  setContextMenu(null);
-                }}
-              >
-                粘貼章節
               </button>
               <button
                 className="context-item"
@@ -4080,6 +4282,24 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
+                  const chapter = workspace.chapters[contextMenu.chapterId];
+                  if (chapter) {
+                    const selectedChapterIdsForAction = collectOrderedChapterIdsForContext(
+                      chapter.id,
+                      chapterSelectionForMenu,
+                    );
+                    const insertAfterChapterId =
+                      selectedChapterIdsForAction[selectedChapterIdsForAction.length - 1] ?? chapter.id;
+                    pasteChapterFromClipboard(chapter.projectId, insertAfterChapterId);
+                  }
+                  setContextMenu(null);
+                }}
+              >
+                粘貼章節
+              </button>
+              <button
+                className="context-item context-danger"
+                onClick={() => {
                   const selectedChapterIdsForAction = collectOrderedChapterIdsForContext(
                     contextMenu.chapterId,
                     chapterSelectionForMenu,
@@ -4097,6 +4317,15 @@ function App() {
             </>
           ) : (
             <>
+              <button
+                className="context-item"
+                onClick={() => {
+                  beginCreateEntryAfter(contextMenu.entryId);
+                  setContextMenu(null);
+                }}
+              >
+                新增史料
+              </button>
               <button
                 className="context-item"
                 onClick={() => {
@@ -4118,11 +4347,17 @@ function App() {
               <button
                 className="context-item"
                 onClick={() => {
-                  beginCreateEntryAfter(contextMenu.entryId);
+                  const selectedEntryIdsForAction = collectOrderedEntryIdsForContext(
+                    contextMenu.entryId,
+                    entrySelectionForMenu,
+                  );
+                  copyEntriesToClipboard(
+                    selectedEntryIdsForAction.length > 0 ? selectedEntryIdsForAction : [contextMenu.entryId],
+                  );
                   setContextMenu(null);
                 }}
               >
-                新增史料
+                複製史料
               </button>
               <button
                 className="context-item"
@@ -4143,22 +4378,7 @@ function App() {
                 粘貼史料
               </button>
               <button
-                className="context-item"
-                onClick={() => {
-                  const selectedEntryIdsForAction = collectOrderedEntryIdsForContext(
-                    contextMenu.entryId,
-                    entrySelectionForMenu,
-                  );
-                  copyEntriesToClipboard(
-                    selectedEntryIdsForAction.length > 0 ? selectedEntryIdsForAction : [contextMenu.entryId],
-                  );
-                  setContextMenu(null);
-                }}
-              >
-                複製史料
-              </button>
-              <button
-                className="context-item"
+                className="context-item context-danger"
                 onClick={() => {
                   const selectedEntryIdsForAction = collectOrderedEntryIdsForContext(
                     contextMenu.entryId,
@@ -4714,7 +4934,9 @@ function App() {
                     <p className="empty-inline">未檢索到符合內容。</p>
                   ) : (
                     <>
-                      <div style={{ height: `${advancedVirtualRange.topSpacer}px` }} />
+                      {shouldVirtualizeAdvancedResults && (
+                        <div style={{ height: `${advancedVirtualRange.topSpacer}px` }} />
+                      )}
                       {visibleAdvancedResults.map((result) => {
                       const entry = workspace.entries[result.entryId];
                       return (
@@ -4783,7 +5005,9 @@ function App() {
                         </button>
                       );
                       })}
-                      <div style={{ height: `${advancedVirtualRange.bottomSpacer}px` }} />
+                      {shouldVirtualizeAdvancedResults && (
+                        <div style={{ height: `${advancedVirtualRange.bottomSpacer}px` }} />
+                      )}
                     </>
                   )
                 ) : (
