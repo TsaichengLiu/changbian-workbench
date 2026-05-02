@@ -223,6 +223,14 @@ function resetSharedWorkspacePath(workspace) {
   return { ok: true, path: sharedWorkspaceFile };
 }
 
+function ensureJsonExtension(filePath) {
+  const normalized = typeof filePath === "string" ? filePath.trim() : "";
+  if (!normalized) {
+    return "";
+  }
+  return normalized.toLocaleLowerCase().endsWith(".json") ? normalized : `${normalized}.json`;
+}
+
 function buildAppearanceSubmenu() {
   return [
     {
@@ -310,6 +318,55 @@ ipcMain.handle("workspace:pick-shared-path", async () => {
     return null;
   }
   return result.filePath || null;
+});
+
+ipcMain.handle("workspace:export-file", async (_event, workspace, suggestedFileName) => {
+  const focused = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || undefined;
+  const baseName =
+    typeof suggestedFileName === "string" && suggestedFileName.trim()
+      ? suggestedFileName.trim()
+      : path.basename(sharedWorkspaceFile) || "workspace.json";
+  const defaultPath = path.join(path.dirname(sharedWorkspaceFile), ensureJsonExtension(baseName));
+  const result = await dialog.showSaveDialog(focused, {
+    title: "另存工作臺檔案",
+    defaultPath,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+    properties: ["createDirectory", "showOverwriteConfirmation"],
+  });
+
+  if (result.canceled || !result.filePath) {
+    return { ok: false, canceled: true };
+  }
+
+  const filePath = ensureJsonExtension(result.filePath);
+  const saved = writeJsonAtomic(filePath, workspace);
+  if (!saved) {
+    return { ok: false, error: "無法寫入檔案。" };
+  }
+  return { ok: true, path: filePath };
+});
+
+ipcMain.handle("workspace:import-file", async () => {
+  const focused = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || undefined;
+  const result = await dialog.showOpenDialog(focused, {
+    title: "匯入工作臺檔案",
+    defaultPath: path.dirname(sharedWorkspaceFile),
+    filters: [{ name: "JSON", extensions: ["json"] }],
+    properties: ["openFile"],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { ok: false, canceled: true };
+  }
+
+  const filePath = result.filePaths[0];
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(raw);
+    return { ok: true, path: filePath, data };
+  } catch {
+    return { ok: false, error: "檔案讀取或解析失敗，請確認為有效 JSON。" };
+  }
 });
 
 function createWindow() {

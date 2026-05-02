@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld("workspaceBridge", {
   resetSharedWorkspacePath: (workspace) =>
     ipcRenderer.invoke("workspace:reset-shared-path", workspace),
   pickSharedWorkspacePath: () => ipcRenderer.invoke("workspace:pick-shared-path"),
+  exportWorkspaceFile: (workspace, suggestedFileName) =>
+    ipcRenderer.invoke("workspace:export-file", workspace, suggestedFileName),
+  importWorkspaceFile: () => ipcRenderer.invoke("workspace:import-file"),
 });
 
 contextBridge.exposeInMainWorld("appearanceBridge", {

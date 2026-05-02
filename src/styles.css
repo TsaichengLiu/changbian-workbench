@@ -846,6 +846,23 @@ h3 {
   gap: 6px;
 }
 
+.storage-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.storage-info-btn {
+  min-width: 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  padding: 0;
+  font-weight: 700;
+  font-size: 13px;
+}
+
 .modal-drag-handle {
   cursor: grab;
   user-select: none;
@@ -1006,10 +1023,28 @@ h3 {
   line-height: 1.45;
 }
 
+.storage-format-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid rgba(46, 64, 69, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 10px;
+}
+
+.storage-format-list .meta-text {
+  line-height: 1.55;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.storage-actions {
+  flex-wrap: wrap;
 }
 
 .merge-mode-row {

@@ -23,6 +23,17 @@ interface WorkspaceBridge {
     workspace?: unknown,
   ) => Promise<{ ok: boolean; path?: string; error?: string }>;
   pickSharedWorkspacePath: () => Promise<string | null>;
+  exportWorkspaceFile: (
+    workspace: unknown,
+    suggestedFileName?: string,
+  ) => Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+  importWorkspaceFile: () => Promise<{
+    ok: boolean;
+    canceled?: boolean;
+    path?: string;
+    error?: string;
+    data?: unknown;
+  }>;
 }
 
 interface AppearanceBridge {

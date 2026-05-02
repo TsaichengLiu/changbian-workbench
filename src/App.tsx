@@ -281,6 +281,8 @@ interface ModalDragState {
 
 type OverlayModalKey =
   | "storage"
+  | "storage-save-as"
+  | "storage-format-info"
   | "form"
   | "entry-view"
   | "entry-form"
@@ -290,6 +292,8 @@ type OverlayModalKey =
 
 const OVERLAY_MODAL_KEYS: OverlayModalKey[] = [
   "storage",
+  "storage-save-as",
+  "storage-format-info",
   "form",
   "entry-view",
   "entry-form",
@@ -304,6 +308,8 @@ const MODAL_Z_INDEX_STEP = 4;
 function createOverlayModalMap<T>(value: T): Record<OverlayModalKey, T> {
   return {
     storage: value,
+    "storage-save-as": value,
+    "storage-format-info": value,
     form: value,
     "entry-view": value,
     "entry-form": value,
@@ -954,6 +960,14 @@ function formatDateTimeLabel(timestamp: number): string {
   return date.toLocaleString("zh-Hant-TW", { hour12: false });
 }
 
+function sanitizeFileNameSegment(value: string): string {
+  return value
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
+    .replace(/\s+/g, " ")
+    .slice(0, 80);
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -1266,6 +1280,8 @@ function App() {
     () => !window.workspaceBridge?.loadSharedWorkspace,
   );
   const [storageModalOpen, setStorageModalOpen] = useState(false);
+  const [storageSaveAsModalOpen, setStorageSaveAsModalOpen] = useState(false);
+  const [storageFormatInfoModalOpen, setStorageFormatInfoModalOpen] = useState(false);
   const [storageInfo, setStorageInfo] = useState<WorkspaceStorageInfo | null>(null);
   const [storagePathDraft, setStoragePathDraft] = useState("");
   const [storageStatus, setStorageStatus] = useState("");
@@ -2002,6 +2018,8 @@ function App() {
         setMergeModal((state) => ({ ...state, open: false }));
         setAdvancedModal((state) => ({ ...state, open: false }));
         setChapterMergeModal((state) => ({ ...state, open: false }));
+        setStorageSaveAsModalOpen(false);
+        setStorageFormatInfoModalOpen(false);
         setStorageModalOpen(false);
         return;
       }
@@ -3726,8 +3744,149 @@ function App() {
 
   function openStorageModal(): void {
     setStorageStatus("");
+    setStorageSaveAsModalOpen(false);
+    setStorageFormatInfoModalOpen(false);
     setStorageModalOpen(true);
     void refreshStorageInfo();
+  }
+
+  function closeStorageModal(): void {
+    setStorageModalOpen(false);
+    setStorageSaveAsModalOpen(false);
+    setStorageFormatInfoModalOpen(false);
+  }
+
+  function buildWorkspaceForSave(scope: "active" | "all"): WorkspaceData | null {
+    if (scope === "all") {
+      return cleanupWorkspace(workspace);
+    }
+
+    if (!activeProject) {
+      return null;
+    }
+
+    const project = workspace.projects[activeProject.id];
+    if (!project) {
+      return null;
+    }
+
+    const next: WorkspaceData = {
+      projectOrder: [project.id],
+      projects: {
+        [project.id]: structuredClone(project),
+      },
+      chapters: {},
+      entries: {},
+      activeProjectId: project.id,
+      activeChapterId: null,
+      selectedEntryId: null,
+    };
+
+    for (const chapterId of project.chapterIds) {
+      const chapter = workspace.chapters[chapterId];
+      if (!chapter || chapter.projectId !== project.id) {
+        continue;
+      }
+      next.chapters[chapterId] = structuredClone(chapter);
+    }
+
+    const entryIds = new Set<string>(project.entryIds);
+    for (const chapter of Object.values(next.chapters)) {
+      for (const entryId of chapter.entryIds) {
+        entryIds.add(entryId);
+      }
+    }
+
+    for (const entryId of entryIds) {
+      const entry = workspace.entries[entryId];
+      if (!entry || entry.projectId !== project.id) {
+        continue;
+      }
+      next.entries[entryId] = structuredClone(entry);
+    }
+
+    if (workspace.activeChapterId && next.chapters[workspace.activeChapterId]) {
+      next.activeChapterId = workspace.activeChapterId;
+    }
+    if (workspace.selectedEntryId && next.entries[workspace.selectedEntryId]) {
+      next.selectedEntryId = workspace.selectedEntryId;
+    }
+
+    return cleanupWorkspace(next);
+  }
+
+  async function exportWorkspaceAsFile(scope: "active" | "all"): Promise<void> {
+    if (!window.workspaceBridge?.exportWorkspaceFile) {
+      setStorageStatus("目前版本不支持另存為。");
+      return;
+    }
+
+    const payload = buildWorkspaceForSave(scope);
+    if (!payload) {
+      setStorageStatus("找不到可另存的專案。");
+      return;
+    }
+
+    const suggestedFileName =
+      scope === "all"
+        ? "長編工作臺-全部專案.json"
+        : `長編工作臺-${sanitizeFileNameSegment(activeProject?.title || "當前專案") || "當前專案"}.json`;
+
+    setStorageBusy(true);
+    setStorageStatus("");
+    try {
+      const result = await window.workspaceBridge.exportWorkspaceFile(payload, suggestedFileName);
+      if (!result.ok) {
+        if (result.canceled) {
+          setStorageStatus("已取消另存。");
+        } else {
+          setStorageStatus(result.error || "另存失敗。");
+        }
+        return;
+      }
+
+      setStorageSaveAsModalOpen(false);
+      setStorageStatus(`已另存檔案：${result.path ?? suggestedFileName}`);
+    } catch {
+      setStorageStatus("另存檔案時發生錯誤。");
+    } finally {
+      setStorageBusy(false);
+    }
+  }
+
+  async function importWorkspaceFromFile(): Promise<void> {
+    if (!window.workspaceBridge?.importWorkspaceFile) {
+      setStorageStatus("目前版本不支持匯入檔案。");
+      return;
+    }
+
+    setStorageBusy(true);
+    setStorageStatus("");
+    try {
+      const result = await window.workspaceBridge.importWorkspaceFile();
+      if (!result.ok) {
+        if (result.canceled) {
+          setStorageStatus("已取消匯入。");
+        } else {
+          setStorageStatus(result.error || "匯入失敗。");
+        }
+        return;
+      }
+
+      if (!result.data || typeof result.data !== "object") {
+        setStorageStatus("匯入失敗：檔案內容不是有效工作臺資料。");
+        return;
+      }
+
+      setWorkspace(cleanupWorkspace(result.data as WorkspaceData));
+      setStorageStatus(`已匯入檔案：${result.path ?? "未命名檔案"}`);
+      setStorageSaveAsModalOpen(false);
+      setStorageFormatInfoModalOpen(false);
+    } catch {
+      setStorageStatus("匯入檔案時發生錯誤。");
+    } finally {
+      setStorageBusy(false);
+    }
   }
 
   async function chooseStoragePath(): Promise<void> {
@@ -3853,6 +4012,8 @@ function App() {
   const entryViewHighlightQuery = entryViewModal?.highlightQuery?.trim() ?? "";
   const modalOpenState: Record<OverlayModalKey, boolean> = {
     storage: storageModalOpen,
+    "storage-save-as": storageSaveAsModalOpen,
+    "storage-format-info": storageFormatInfoModalOpen,
     form: Boolean(formModal),
     "entry-view": Boolean(entryViewModal),
     "entry-form": Boolean(entryModal),
@@ -3884,6 +4045,8 @@ function App() {
     Boolean(entryViewModal),
     Boolean(formModal),
     mergeModal.open,
+    storageFormatInfoModalOpen,
+    storageSaveAsModalOpen,
     storageModalOpen,
   ]);
 
@@ -4669,7 +4832,21 @@ function App() {
             }}
           >
             <div className="modal-head modal-drag-handle" onMouseDown={(event) => startModalDrag(event, "storage")}>
-              <h3>檔案資料管理</h3>
+              <div className="storage-head-row">
+                <h3>檔案資料管理</h3>
+                <button
+                  type="button"
+                  className="icon-btn storage-info-btn"
+                  title="檔案格式說明"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={() => {
+                    activateOverlayModal("storage-format-info");
+                    setStorageFormatInfoModalOpen(true);
+                  }}
+                >
+                  i
+                </button>
+              </div>
               <p className="meta-text">手動管理專案與史料資料檔的存放位置。</p>
             </div>
 
@@ -4706,9 +4883,22 @@ function App() {
               {storageStatus && <p className="status-text">{storageStatus}</p>}
             </div>
 
-            <div className="modal-actions">
-              <button className="ghost-btn" onClick={() => setStorageModalOpen(false)} disabled={storageBusy}>
+            <div className="modal-actions storage-actions">
+              <button className="ghost-btn" onClick={closeStorageModal} disabled={storageBusy}>
                 關閉
+              </button>
+              <button
+                className="ghost-btn"
+                onClick={() => {
+                  activateOverlayModal("storage-save-as");
+                  setStorageSaveAsModalOpen(true);
+                }}
+                disabled={storageBusy}
+              >
+                另存為
+              </button>
+              <button className="ghost-btn" onClick={() => void importWorkspaceFromFile()} disabled={storageBusy}>
+                匯入檔案
               </button>
               <button className="ghost-btn" onClick={() => void reloadWorkspaceFromStorage()} disabled={storageBusy}>
                 從資料檔重載
@@ -4726,6 +4916,97 @@ function App() {
                 disabled={storageBusy || Boolean(storageInfo?.envLocked)}
               >
                 切換並保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {storageSaveAsModalOpen && (
+        <div className="modal-backdrop" style={modalBackdropStyle("storage-save-as")}>
+          <div
+            className="modal-card draggable-modal"
+            style={modalCardStyle("storage-save-as")}
+            onMouseDown={(event) => {
+              activateOverlayModal("storage-save-as");
+              event.stopPropagation();
+            }}
+          >
+            <div
+              className="modal-head modal-drag-handle"
+              onMouseDown={(event) => startModalDrag(event, "storage-save-as")}
+            >
+              <h3>另存為</h3>
+              <p className="meta-text">請選擇另存範圍。</p>
+            </div>
+
+            <div className="tool-row">
+              <button
+                className="secondary-btn"
+                onClick={() => void exportWorkspaceAsFile("active")}
+                disabled={storageBusy || !activeProject}
+              >
+                另存當前專案
+              </button>
+              <button
+                className="secondary-btn"
+                onClick={() => void exportWorkspaceAsFile("all")}
+                disabled={storageBusy}
+              >
+                另存全部專案
+              </button>
+            </div>
+
+            {!activeProject && <p className="meta-text">目前沒有可用的當前專案。</p>}
+
+            <div className="modal-actions">
+              <button
+                className="ghost-btn"
+                onClick={() => setStorageSaveAsModalOpen(false)}
+                disabled={storageBusy}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {storageFormatInfoModalOpen && (
+        <div className="modal-backdrop" style={modalBackdropStyle("storage-format-info")}>
+          <div
+            className="modal-card modal-large draggable-modal"
+            style={modalCardStyle("storage-format-info")}
+            onMouseDown={(event) => {
+              activateOverlayModal("storage-format-info");
+              event.stopPropagation();
+            }}
+          >
+            <div
+              className="modal-head modal-drag-handle"
+              onMouseDown={(event) => startModalDrag(event, "storage-format-info")}
+            >
+              <h3>檔案格式說明</h3>
+              <p className="meta-text">本 App 使用 JSON 工作臺檔案，可直接匯入與管理。</p>
+            </div>
+
+            <div className="storage-format-list">
+              <p className="meta-text">
+                檔案為 UTF-8 JSON，頂層包含 `projectOrder`、`projects`、`chapters`、`entries`、
+                `activeProjectId`、`activeChapterId`、`selectedEntryId`。
+              </p>
+              <p className="meta-text">
+                `entries` 內保留每條史料的時間、摘要、史料文本、備註、引文註釋，以及建立/修改時間戳。
+              </p>
+              <p className="meta-text">
+                「另存為」輸出的檔案可直接透過「匯入檔案」載回本 App，並保持可編輯與檢索能力。
+              </p>
+              <p className="meta-text">建議副檔名使用 `.json`，方便備份與版本管理。</p>
+            </div>
+
+            <div className="modal-actions">
+              <button className="ghost-btn" onClick={() => setStorageFormatInfoModalOpen(false)}>
+                關閉
               </button>
             </div>
           </div>
