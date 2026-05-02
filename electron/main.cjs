@@ -328,8 +328,9 @@ ipcMain.handle("workspace:export-file", async (_event, workspace, suggestedFileN
       : path.basename(sharedWorkspaceFile) || "workspace.json";
   const defaultPath = path.join(path.dirname(sharedWorkspaceFile), ensureJsonExtension(baseName));
   const result = await dialog.showSaveDialog(focused, {
-    title: "另存工作臺檔案",
+    title: "備份工作臺檔案",
     defaultPath,
+    buttonLabel: "備份到",
     filters: [{ name: "JSON", extensions: ["json"] }],
     properties: ["createDirectory", "showOverwriteConfirmation"],
   });
@@ -339,6 +340,20 @@ ipcMain.handle("workspace:export-file", async (_event, workspace, suggestedFileN
   }
 
   const filePath = ensureJsonExtension(result.filePath);
+  if (fs.existsSync(filePath)) {
+    const confirm = await dialog.showMessageBox(focused, {
+      type: "warning",
+      title: "確認覆蓋備份檔",
+      message: `檔案已存在：\n${filePath}\n\n是否要覆蓋這個備份檔？`,
+      buttons: ["取消", "覆蓋備份檔"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirm.response !== 1) {
+      return { ok: false, canceled: true };
+    }
+  }
   const saved = writeJsonAtomic(filePath, workspace);
   if (!saved) {
     return { ok: false, error: "無法寫入檔案。" };

@@ -3815,22 +3815,28 @@ function App() {
     return cleanupWorkspace(next);
   }
 
-  async function exportWorkspaceAsFile(scope: "active" | "all"): Promise<void> {
+  async function backupWorkspaceToFile(scope: "active" | "all"): Promise<void> {
     if (!window.workspaceBridge?.exportWorkspaceFile) {
-      setStorageStatus("目前版本不支持另存為。");
+      setStorageStatus("目前版本不支持備份到。");
       return;
     }
 
     const payload = buildWorkspaceForSave(scope);
     if (!payload) {
-      setStorageStatus("找不到可另存的專案。");
+      setStorageStatus("找不到可備份的專案。");
       return;
     }
 
+    const timestamp = new Date();
+    const backupStamp = `${timestamp.getFullYear()}${String(timestamp.getMonth() + 1).padStart(2, "0")}${String(
+      timestamp.getDate(),
+    ).padStart(2, "0")}-${String(timestamp.getHours()).padStart(2, "0")}${String(
+      timestamp.getMinutes(),
+    ).padStart(2, "0")}${String(timestamp.getSeconds()).padStart(2, "0")}`;
     const suggestedFileName =
       scope === "all"
-        ? "長編工作臺-全部專案.json"
-        : `長編工作臺-${sanitizeFileNameSegment(activeProject?.title || "當前專案") || "當前專案"}.json`;
+        ? `長編工作臺-全部專案-備份-${backupStamp}.json`
+        : `長編工作臺-${sanitizeFileNameSegment(activeProject?.title || "當前專案") || "當前專案"}-備份-${backupStamp}.json`;
 
     setStorageBusy(true);
     setStorageStatus("");
@@ -3838,17 +3844,17 @@ function App() {
       const result = await window.workspaceBridge.exportWorkspaceFile(payload, suggestedFileName);
       if (!result.ok) {
         if (result.canceled) {
-          setStorageStatus("已取消另存。");
+          setStorageStatus("已取消備份。");
         } else {
-          setStorageStatus(result.error || "另存失敗。");
+          setStorageStatus(result.error || "備份失敗。");
         }
         return;
       }
 
       setStorageSaveAsModalOpen(false);
-      setStorageStatus(`已另存檔案：${result.path ?? suggestedFileName}`);
+      setStorageStatus(`已備份到：${result.path ?? suggestedFileName}`);
     } catch {
-      setStorageStatus("另存檔案時發生錯誤。");
+      setStorageStatus("備份檔案時發生錯誤。");
     } finally {
       setStorageBusy(false);
     }
@@ -5002,7 +5008,7 @@ function App() {
                 }}
                 disabled={storageBusy}
               >
-                另存為
+                備份到
               </button>
               <button className="ghost-btn" onClick={() => void importWorkspaceFromFile()} disabled={storageBusy}>
                 匯入檔案
@@ -5043,24 +5049,24 @@ function App() {
               className="modal-head modal-drag-handle"
               onMouseDown={(event) => startModalDrag(event, "storage-save-as")}
             >
-              <h3>另存為</h3>
-              <p className="meta-text">請選擇另存範圍。</p>
+              <h3>備份到</h3>
+              <p className="meta-text">請選擇備份範圍。</p>
             </div>
 
             <div className="tool-row">
               <button
                 className="secondary-btn"
-                onClick={() => void exportWorkspaceAsFile("active")}
+                onClick={() => void backupWorkspaceToFile("active")}
                 disabled={storageBusy || !activeProject}
               >
-                另存當前專案
+                備份當前專案
               </button>
               <button
                 className="secondary-btn"
-                onClick={() => void exportWorkspaceAsFile("all")}
+                onClick={() => void backupWorkspaceToFile("all")}
                 disabled={storageBusy}
               >
-                另存全部專案
+                備份全部專案
               </button>
             </div>
 
@@ -5107,6 +5113,9 @@ function App() {
               </p>
               <p className="meta-text">
                 「匯入檔案」會把內容加入目前工作臺，不會直接覆蓋既有資料；匯入前會再次要求確認。
+              </p>
+              <p className="meta-text">
+                「備份到」只會產生備份副本，不會改動目前工作臺；如目標檔已存在，會先要求你確認再覆蓋。
               </p>
               <p className="meta-text">建議副檔名使用 `.json`，方便備份與版本管理。</p>
             </div>
