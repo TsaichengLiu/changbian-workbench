@@ -3854,6 +3854,99 @@ function App() {
     }
   }
 
+  function mergeImportedWorkspace(
+    current: WorkspaceData,
+    importedRaw: WorkspaceData,
+  ): { workspace: WorkspaceData; addedProjects: number; addedEntries: number } {
+    const imported = cleanupWorkspace(importedRaw);
+    const next = structuredClone(current);
+    let addedProjects = 0;
+    let addedEntries = 0;
+
+    for (const importedProjectId of imported.projectOrder) {
+      const importedProject = imported.projects[importedProjectId];
+      if (!importedProject) {
+        continue;
+      }
+
+      const nextProjectId = createId("project");
+      const nextProjectTitle = ensureUniqueProjectTitle(next, importedProject.title || "匯入專案");
+      next.projects[nextProjectId] = {
+        id: nextProjectId,
+        title: nextProjectTitle,
+        chapterIds: [],
+        entryIds: [],
+        createdAt: Date.now(),
+      };
+      next.projectOrder.push(nextProjectId);
+      addedProjects += 1;
+
+      for (const importedEntryId of importedProject.entryIds) {
+        const importedEntry = imported.entries[importedEntryId];
+        if (!importedEntry || importedEntry.projectId !== importedProjectId || importedEntry.chapterId !== null) {
+          continue;
+        }
+        const nextEntryId = createId("entry");
+        next.entries[nextEntryId] = {
+          ...importedEntry,
+          id: nextEntryId,
+          projectId: nextProjectId,
+          chapterId: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        next.projects[nextProjectId].entryIds.push(nextEntryId);
+        addedEntries += 1;
+      }
+
+      for (const importedChapterId of importedProject.chapterIds) {
+        const importedChapter = imported.chapters[importedChapterId];
+        if (!importedChapter || importedChapter.projectId !== importedProjectId) {
+          continue;
+        }
+
+        const nextChapterId = createId("chapter");
+        const nextChapterTitle = ensureUniqueChapterTitle(
+          next,
+          nextProjectId,
+          importedChapter.title || "新章節",
+        );
+        next.chapters[nextChapterId] = {
+          id: nextChapterId,
+          projectId: nextProjectId,
+          title: nextChapterTitle,
+          entryIds: [],
+          createdAt: Date.now(),
+        };
+        next.projects[nextProjectId].chapterIds.push(nextChapterId);
+
+        for (const importedEntryId of importedChapter.entryIds) {
+          const importedEntry = imported.entries[importedEntryId];
+          if (!importedEntry || importedEntry.projectId !== importedProjectId || importedEntry.chapterId !== importedChapterId) {
+            continue;
+          }
+          const nextEntryId = createId("entry");
+          next.entries[nextEntryId] = {
+            ...importedEntry,
+            id: nextEntryId,
+            projectId: nextProjectId,
+            chapterId: nextChapterId,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          next.chapters[nextChapterId].entryIds.push(nextEntryId);
+          addedEntries += 1;
+        }
+      }
+    }
+
+    return {
+      workspace: cleanupWorkspace(next),
+      addedProjects,
+      addedEntries,
+    };
+  }
+
   async function importWorkspaceFromFile(): Promise<void> {
     if (!window.workspaceBridge?.importWorkspaceFile) {
       setStorageStatus("目前版本不支持匯入檔案。");
@@ -3878,8 +3971,22 @@ function App() {
         return;
       }
 
-      setWorkspace(cleanupWorkspace(result.data as WorkspaceData));
-      setStorageStatus(`已匯入檔案：${result.path ?? "未命名檔案"}`);
+      const shouldMerge = window.confirm(
+        "匯入會把檔案內容加入目前工作臺，不會覆蓋或刪除現有資料。是否繼續？",
+      );
+      if (!shouldMerge) {
+        setStorageStatus("已取消匯入。");
+        return;
+      }
+
+      const { workspace: mergedWorkspace, addedProjects, addedEntries } = mergeImportedWorkspace(
+        workspace,
+        result.data as WorkspaceData,
+      );
+      setWorkspace(mergedWorkspace);
+      setStorageStatus(
+        `已匯入並加入：${addedProjects} 個專案、${addedEntries} 條史料（來源：${result.path ?? "未命名檔案"}）。`,
+      );
       setStorageSaveAsModalOpen(false);
       setStorageFormatInfoModalOpen(false);
     } catch {
@@ -4999,7 +5106,7 @@ function App() {
                 `entries` 內保留每條史料的時間、摘要、史料文本、備註、引文註釋，以及建立/修改時間戳。
               </p>
               <p className="meta-text">
-                「另存為」輸出的檔案可直接透過「匯入檔案」載回本 App，並保持可編輯與檢索能力。
+                「匯入檔案」會把內容加入目前工作臺，不會直接覆蓋既有資料；匯入前會再次要求確認。
               </p>
               <p className="meta-text">建議副檔名使用 `.json`，方便備份與版本管理。</p>
             </div>
