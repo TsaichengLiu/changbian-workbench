@@ -2029,10 +2029,13 @@ function App() {
         target?.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]'),
       );
       const isArrowNavigationKey = event.key === "ArrowDown" || event.key === "ArrowUp";
+      const isModifierPressed = event.metaKey || event.ctrlKey;
+      const key = event.key.toLocaleLowerCase();
       const allowArrowNavigationFromTypingTarget =
         isArrowNavigationKey && (navigationScope === "search" || (navigationScope === "advanced" && advancedModal.open));
+      const allowSearchShortcutFromTypingTarget = isModifierPressed && !event.altKey && key === "f";
       if (isTypingTarget) {
-        if (!allowArrowNavigationFromTypingTarget) {
+        if (!allowArrowNavigationFromTypingTarget && !allowSearchShortcutFromTypingTarget) {
           return;
         }
       }
@@ -2040,8 +2043,20 @@ function App() {
         return;
       }
 
-      const isModifierPressed = event.metaKey || event.ctrlKey;
-      const key = event.key.toLocaleLowerCase();
+      if (isModifierPressed && !event.altKey && key === "f") {
+        event.preventDefault();
+        setAdvancedModal((state) => (state.open ? { ...state, open: false } : state));
+        setNavigationScope("search");
+        window.requestAnimationFrame(() => {
+          const input = document.getElementById("global-search-input");
+          if (input instanceof HTMLInputElement) {
+            input.focus();
+            input.select();
+          }
+        });
+        return;
+      }
+
       if (isModifierPressed && !event.altKey && key === "c") {
         const selectedText = window.getSelection?.()?.toString().trim() ?? "";
         if (selectedText.length > 0) {
@@ -4553,6 +4568,7 @@ function App() {
             </div>
 
             <input
+              id="global-search-input"
               className="search-input"
               placeholder="檢索時間、摘要、史料文本、備註、引文註釋..."
               value={globalQuery}
